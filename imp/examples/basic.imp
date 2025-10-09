@@ -1,0 +1,5 @@
+fn basic() {
+	x = 5;
+	y = x + 7;
+	return y;
+}
