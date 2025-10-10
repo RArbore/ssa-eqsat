@@ -18,3 +18,4 @@ lalrpop = "*"
 dot = "*"
 lalrpop-util = { version = "*", features = ["lexer", "unicode"] }
 string-interner = "*"
+tempfile = "*"
