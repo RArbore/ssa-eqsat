@@ -3,3 +3,18 @@ fn basic() {
 	y = x + 7;
 	return y;
 }
+
+fn branch(x) {
+	if x {
+		x = 0;
+	}
+	return x + 7;
+}
+
+fn loop(x) {
+	y = 7;
+	while x > 0 {
+		x = x - 1;
+	}
+	return x - y;
+}

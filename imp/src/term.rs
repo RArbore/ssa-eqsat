@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{Result, Write};
 
-use dot::{Edges, GraphWalk, Id, Labeller, Nodes, render};
+use dot::{Edges, GraphWalk, Id, LabelText, Labeller, Nodes, render};
 use string_interner::Symbol as _;
 
 use crate::ast::{ExpressionAST, FunctionAST, Location, StatementAST, Symbol};
@@ -225,11 +225,11 @@ impl<'a> GraphWalk<'a, (TermId, Term), (TermId, TermId)> for Terms {
     }
 
     fn source(&'a self, edge: &(TermId, TermId)) -> (TermId, Term) {
-        (edge.0, self.terms[edge.0 as usize])
+        (edge.1, self.terms[edge.1 as usize])
     }
 
     fn target(&'a self, edge: &(TermId, TermId)) -> (TermId, Term) {
-        (edge.1, self.terms[edge.1 as usize])
+        (edge.0, self.terms[edge.0 as usize])
     }
 }
 
@@ -240,5 +240,15 @@ impl<'a> Labeller<'a, (TermId, Term), (TermId, TermId)> for Terms {
 
     fn node_id(&'a self, n: &(TermId, Term)) -> Id<'a> {
         Id::new(format!("N{}", n.0)).unwrap()
+    }
+
+    fn node_label(&'a self, n: &(TermId, Term)) -> LabelText<'a> {
+        match n.1 {
+            Term::Constant(val) => LabelText::html(format!("{}", val)),
+            Term::Param(idx) => LabelText::html(format!("#{}", idx)),
+            Term::Phi(_, _, _) => LabelText::html("Φ"),
+            Term::Unary(op, _) => LabelText::html(format!("{:?}", op)),
+            Term::Binary(op, _, _) => LabelText::html(format!("{:?}", op)),
+        }
     }
 }
