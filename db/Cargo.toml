@@ -1,12 +1,12 @@
 [package]
-name = "opt"
+name = "db"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "opt"
+name = "db"
 path = "src/lib.rs"
 
 [dependencies]
-egglog = "*"
-imp = { path = "../imp" }
+hashbrown = "*"
+rustc-hash = "*"
