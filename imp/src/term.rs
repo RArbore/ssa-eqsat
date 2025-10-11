@@ -68,6 +68,10 @@ impl Terms {
         self.terms[id as usize] = term;
         self.intern.insert(term, id);
     }
+
+    pub fn terms(&self) -> impl Iterator<Item = (TermId, Term)> + '_ {
+        self.terms.iter().enumerate().map(|(idx, term)| (idx as TermId, *term))
+    }
 }
 
 pub fn naive_ssa_translation(func: &FunctionAST) -> Terms {

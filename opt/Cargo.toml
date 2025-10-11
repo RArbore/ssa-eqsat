@@ -1,0 +1,12 @@
+[package]
+name = "opt"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "opt"
+path = "src/lib.rs"
+
+[dependencies]
+egglog = "*"
+imp = { path = "../imp" }
