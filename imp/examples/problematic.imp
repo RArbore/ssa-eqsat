@@ -5,3 +5,13 @@ fn mul_one() {
 	w = 1 * y;
 	return x == y;
 }
+
+fn inc_dec() {
+        x = 5;
+	y = 3;
+	xs = x + 1;
+	xsd = xs - 1;
+	ys = y + 1;
+	ysd = ys - 1;
+	return xsd == ysd;
+}

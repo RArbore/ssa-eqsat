@@ -134,14 +134,23 @@ mod tests {
         assert_eq!(uf.find(y), y);
         assert_eq!(uf.find(z), z);
         assert_eq!(uf.num_classes(), 3);
+        assert_eq!(uf.merge(x, x), x);
+        assert_eq!(uf.merge(y, y), y);
+        assert_eq!(uf.merge(z, z), z);
+        assert_eq!(uf.num_classes(), 3);
         assert_eq!(uf.merge(x, y), x);
         assert_eq!(uf.find(x), uf.find(y));
         assert_ne!(uf.find(x), uf.find(z));
+        assert_eq!(uf.num_classes(), 2);
+        assert_eq!(uf.merge(y, x), x);
         assert_eq!(uf.num_classes(), 2);
         assert_eq!(uf.merge(x, z), x);
         assert_eq!(uf.find(x), uf.find(z));
         assert_eq!(uf.find(y), uf.find(z));
         assert_eq!(uf.find(y), uf.find(x));
+        assert_eq!(uf.num_classes(), 1);
+        assert_eq!(uf.merge(x, y), x);
+        assert_eq!(uf.merge(z, y), x);
         assert_eq!(uf.num_classes(), 1);
     }
 

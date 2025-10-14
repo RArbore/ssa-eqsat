@@ -1,3 +1,5 @@
+use core::mem::swap;
+use std::collections::HashSet;
 use std::io::{Result, Write};
 
 use db::table::{Table, Value};
@@ -88,6 +90,7 @@ impl EGraph {
                 writeln!(w, "N{}_{}[label=\"{}\"];", eclass_idx, enode_idx, enode.0)?;
             }
             writeln!(w, "}}")?;
+            writeln!(w, "label={};", eclass_idx)?;
             writeln!(w, "cluster=true;")?;
             writeln!(w, "}}")?;
             writeln!(w, "style=invis;")?;
@@ -99,7 +102,7 @@ impl EGraph {
                 for child_eclass in enode.1 {
                     writeln!(
                         w,
-                        "N{}_0 -> N{}_{} [ltail=E{}];",
+                        "N{}_0:s -> N{}_{} [ltail=E{}];",
                         child_eclass, eclass_idx, enode_idx, child_eclass
                     )?;
                 }
@@ -147,7 +150,31 @@ impl EGraph {
         }
     }
 
-    fn rebuild(&mut self) {
+    fn rewrite3(&mut self) {
+        // (x + 1) - 1 => x
+        let mut matches = vec![];
+        for (sub, _) in self.binary.rows(false) {
+            if sub[0] == BinaryOp::Sub as Value {
+                for (one, _) in self.constant.rows(false) {
+                    if one[0] == 1 && one[1] == sub[2] {
+                        for (add, _) in self.binary.rows(false) {
+                            if add[0] == BinaryOp::Add as Value {
+                                if add[3] == sub[1] && one[1] == add[2] {
+                                    matches.push((add[1], sub[3]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for m in matches {
+            self.uf.merge(m.0.into(), m.1.into());
+        }
+    }
+
+    pub fn rebuild(&mut self) {
         let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
         let mut zero_canon = |row: &[Value], dst: &mut Vec<Value>| {
             let root = self.uf.find(row[1].into()).into();
@@ -186,9 +213,91 @@ impl EGraph {
         }
     }
 
+    pub fn corebuild(&mut self) {
+        let num_class_ids = self.uf.num_class_ids();
+        let mut last_uf = UnionFind::new_all_equals(num_class_ids);
+        let mut next_uf = UnionFind::new_all_not_equals(num_class_ids);
+
+        let mut constant_obs = vec![HashSet::<[Value; 2]>::new(); num_class_ids as usize];
+        let mut param_obs = vec![HashSet::<[Value; 2]>::new(); num_class_ids as usize];
+        let mut phi_obs = vec![HashSet::<[Value; 4]>::new(); num_class_ids as usize];
+        let mut unary_obs = vec![HashSet::<[Value; 3]>::new(); num_class_ids as usize];
+        let mut binary_obs = vec![HashSet::<[Value; 4]>::new(); num_class_ids as usize];
+
+        loop {
+            let zero_canonicalize = |row: &[Value]| [row[0], last_uf.find(row[1].into()).into()];
+            let one_canonicalize = |row: &[Value]| {
+                [
+                    row[0],
+                    last_uf.find(row[1].into()).into(),
+                    last_uf.find(row[2].into()).into(),
+                ]
+            };
+            let two_canonicalize = |row: &[Value]| {
+                [
+                    row[0],
+                    last_uf.find(row[1].into()).into(),
+                    last_uf.find(row[2].into()).into(),
+                    last_uf.find(row[3].into()).into(),
+                ]
+            };
+
+            for (row, _) in self.constant.rows(false) {
+                constant_obs[row[1] as usize].insert(zero_canonicalize(row));
+            }
+            for (row, _) in self.param.rows(false) {
+                param_obs[row[1] as usize].insert(zero_canonicalize(row));
+            }
+            for (row, _) in self.phi.rows(false) {
+                phi_obs[row[3] as usize].insert(two_canonicalize(row));
+            }
+            for (row, _) in self.unary.rows(false) {
+                unary_obs[row[2] as usize].insert(one_canonicalize(row));
+            }
+            for (row, _) in self.binary.rows(false) {
+                binary_obs[row[3] as usize].insert(two_canonicalize(row));
+            }
+
+            for lhs in 0..num_class_ids {
+                for rhs in 0..num_class_ids {
+                    if !constant_obs[lhs as usize].is_disjoint(&constant_obs[rhs as usize])
+                        || !param_obs[lhs as usize].is_disjoint(&param_obs[rhs as usize])
+                        || !phi_obs[lhs as usize].is_disjoint(&phi_obs[rhs as usize])
+                        || !unary_obs[lhs as usize].is_disjoint(&unary_obs[rhs as usize])
+                        || !binary_obs[lhs as usize].is_disjoint(&binary_obs[rhs as usize])
+                    {
+                        next_uf.merge(lhs.into(), rhs.into());
+                    }
+                }
+            }
+
+            if last_uf == next_uf {
+                break;
+            } else {
+                swap(&mut last_uf, &mut next_uf);
+                next_uf.set_all_not_equals();
+                constant_obs.clear();
+                constant_obs.resize(num_class_ids as usize, HashSet::new());
+                param_obs.clear();
+                param_obs.resize(num_class_ids as usize, HashSet::new());
+                phi_obs.clear();
+                phi_obs.resize(num_class_ids as usize, HashSet::new());
+                unary_obs.clear();
+                unary_obs.resize(num_class_ids as usize, HashSet::new());
+                binary_obs.clear();
+                binary_obs.resize(num_class_ids as usize, HashSet::new());
+            }
+        }
+
+        for idx in 0..num_class_ids {
+            self.uf.merge(idx.into(), last_uf.find(idx.into()));
+        }
+    }
+
     pub fn saturate(&mut self) {
         self.rewrite1();
         self.rewrite2();
+        self.rewrite3();
         self.rebuild();
     }
 }
