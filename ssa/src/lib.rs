@@ -55,7 +55,7 @@ impl EGraph {
 
     pub fn to_dot<W: Write>(&self, w: &mut W) -> Result<()> {
         let mut eclasses: Vec<Vec<(String, Vec<Value>)>> =
-            vec![vec![]; self.uf.num_classes() as usize];
+            vec![vec![]; self.uf.num_class_ids() as usize];
         for (row, _) in self.constant.rows(false) {
             eclasses[row[1] as usize].push((format!("{}", row[0 as usize]), vec![]));
         }
