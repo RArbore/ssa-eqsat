@@ -4,6 +4,8 @@ use db::table::{Table, Value};
 use db::uf::UnionFind;
 use imp::term::{BinaryOp, Term, Terms, UnaryOp};
 
+use crate::lattices::{Interner, Interval};
+
 pub struct EGraph {
     pub(crate) constant: Table,
     pub(crate) param: Table,
@@ -14,6 +16,8 @@ pub struct EGraph {
     pub(crate) interval: Table,
 
     pub(crate) uf: UnionFind,
+
+    pub(crate) interval_interner: Interner<Interval>,
 }
 
 impl EGraph {
@@ -24,10 +28,9 @@ impl EGraph {
             phi: Table::new(3, true),
             unary: Table::new(2, true),
             binary: Table::new(3, true),
-
             interval: Table::new(1, true),
-
             uf: UnionFind::new_all_not_equals(terms.terms().count() as u32),
+            interval_interner: Interner::new(),
         };
         let mut merge =
             |a: Value, b: Value| -> Value { egraph.uf.merge(a.into(), b.into()).into() };

@@ -2,6 +2,7 @@ use db::table::Value;
 use imp::term::BinaryOp;
 
 use crate::egraph::EGraph;
+use crate::lattices::Interval;
 
 impl EGraph {
     fn rewrite1(&mut self) {
@@ -67,6 +68,22 @@ impl EGraph {
         }
     }
 
+    fn rewrite4(&mut self) {
+        // [z, z] => z
+        let mut matches = vec![];
+        for (row, _) in self.interval.rows(false) {
+            if let Some(cons) = self.interval_interner.get(row[1].into()).try_constant() {
+                matches.push((cons, row[0]));
+            }
+        }
+
+        let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
+        for m in matches {
+            let row = [m.0 as Value, m.1];
+            self.constant.insert(&row, &mut merge);
+        }
+    }
+
     pub fn rebuild(&mut self) {
         let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
         let mut zero_canon = |row: &[Value], dst: &mut Vec<Value>| {
@@ -117,6 +134,7 @@ impl EGraph {
             self.rewrite1();
             self.rewrite2();
             self.rewrite3();
+            self.rewrite4();
 
             let new_num_nodes = self.constant.num_rows()
                 + self.param.num_rows()
@@ -133,5 +151,82 @@ impl EGraph {
 
             self.rebuild();
         }
+    }
+
+    fn analysis1(&mut self) {
+        // z => [z, z]
+        let mut matches = vec![];
+        for (row, _) in self.constant.rows(false) {
+            matches.push((row[1], row[0]));
+        }
+
+        let mut merge = |a: Value, b: Value| -> Value {
+            self.interval_interner
+                .intern(
+                    self.interval_interner
+                        .get(a.into())
+                        .intersect(&self.interval_interner.get(b.into())),
+                )
+                .into()
+        };
+        for m in matches {
+            let row = [
+                m.0,
+                self.interval_interner
+                    .intern(Interval {
+                        low: m.1 as i32,
+                        high: m.1 as i32,
+                    })
+                    .into(),
+            ];
+            self.interval.insert(&row, &mut merge);
+        }
+    }
+
+    fn analysis2(&mut self) {
+        // [a, b] + [c, d] => [a + c, b + d]
+        let mut matches = vec![];
+        for (add, _) in self.binary.rows(false) {
+            if add[0] == BinaryOp::Add as Value {
+                for (lhs, _) in self.interval.rows(false) {
+                    if lhs[0] == add[1] {
+                        for (rhs, _) in self.interval.rows(false) {
+                            if rhs[0] == add[2] {
+                                matches.push((add[3], lhs[1], rhs[1]));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut merge = |a: Value, b: Value| -> Value {
+            self.interval_interner
+                .intern(
+                    self.interval_interner
+                        .get(a.into())
+                        .intersect(&self.interval_interner.get(b.into())),
+                )
+                .into()
+        };
+        for m in matches {
+            let lhs = self.interval_interner.get(m.1.into());
+            let rhs = self.interval_interner.get(m.2.into());
+            let row = [
+                m.0,
+                self.interval_interner
+                    .intern(Interval {
+                        low: lhs.low + rhs.low,
+                        high: lhs.high + rhs.high,
+                    })
+                    .into(),
+            ];
+            self.interval.insert(&row, &mut merge);
+        }
+    }
+
+    pub fn optimistic_analysis(&mut self) {
+        self.analysis1();
+        self.analysis2();
     }
 }
