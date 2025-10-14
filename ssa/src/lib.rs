@@ -54,7 +54,8 @@ impl EGraph {
     }
 
     pub fn to_dot<W: Write>(&self, w: &mut W) -> Result<()> {
-        let mut eclasses: Vec<Vec<(String, Vec<Value>)>> = vec![vec![]; self.uf.num_classes() as usize];
+        let mut eclasses: Vec<Vec<(String, Vec<Value>)>> =
+            vec![vec![]; self.uf.num_classes() as usize];
         for (row, _) in self.constant.rows(false) {
             eclasses[row[1] as usize].push((format!("{}", row[0 as usize]), vec![]));
         }
@@ -65,10 +66,14 @@ impl EGraph {
             eclasses[row[3] as usize].push((format!("Φ"), vec![row[1], row[2]]));
         }
         for (row, _) in self.unary.rows(false) {
-            eclasses[row[2] as usize].push((format!("{:?}", UnaryOp::n(row[0]).unwrap()), vec![row[1]]));
+            eclasses[row[2] as usize]
+                .push((format!("{:?}", UnaryOp::n(row[0]).unwrap()), vec![row[1]]));
         }
         for (row, _) in self.binary.rows(false) {
-            eclasses[row[3] as usize].push((format!("{:?}", BinaryOp::n(row[0]).unwrap()), vec![row[1], row[2]]));
+            eclasses[row[3] as usize].push((
+                format!("{:?}", BinaryOp::n(row[0]).unwrap()),
+                vec![row[1], row[2]],
+            ));
         }
 
         writeln!(w, "digraph EGraph {{")?;
@@ -84,10 +89,79 @@ impl EGraph {
         for (eclass_idx, eclass) in eclasses.into_iter().enumerate() {
             for (enode_idx, enode) in eclass.into_iter().enumerate() {
                 for child_idx in enode.1 {
-                    writeln!(w, "N{}_0 -> N{}_{} [ltail=E{}];", child_idx, eclass_idx, enode_idx, child_idx)?;
+                    writeln!(
+                        w,
+                        "N{}_0 -> N{}_{} [ltail=E{}];",
+                        child_idx, eclass_idx, enode_idx, child_idx
+                    )?;
                 }
             }
         }
         writeln!(w, "}}")
+    }
+
+    fn rewrite1(&mut self) {
+        // x + x => 2 * x
+        let mut matches = vec![];
+        for (row, _) in self.binary.rows(false) {
+            if row[0] == BinaryOp::Add as Value && row[1] == row[2] {
+                matches.push((row[1], row[3]))
+            }
+        }
+
+        let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
+        let two = self
+            .constant
+            .insert(&[2, self.uf.makeset().into()], &mut merge)
+            .0[1]
+            .into();
+        for m in matches {
+            let row = [BinaryOp::Mul as Value, two, m.0, m.1];
+            self.binary.insert(&row, &mut merge);
+        }
+    }
+
+    fn rebuild(&mut self) {
+        let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
+        let mut zero_canon = |row: &[Value], dst: &mut Vec<Value>| {
+            let root = self.uf.find(row[1].into()).into();
+            dst.push(row[0]);
+            dst.push(root);
+            root != row[1]
+        };
+        let mut one_canon = |row: &[Value], dst: &mut Vec<Value>| {
+            let input = self.uf.find(row[1].into()).into();
+            let root = self.uf.find(row[2].into()).into();
+            dst.push(row[0]);
+            dst.push(input);
+            dst.push(root);
+            input != row[1] || root != row[2]
+        };
+        let mut two_canon = |row: &[Value], dst: &mut Vec<Value>| {
+            let lhs = self.uf.find(row[1].into()).into();
+            let rhs = self.uf.find(row[2].into()).into();
+            let root = self.uf.find(row[3].into()).into();
+            dst.push(row[0]);
+            dst.push(lhs);
+            dst.push(rhs);
+            dst.push(root);
+            lhs != row[1] || rhs != row[2] || root != row[3]
+        };
+        loop {
+            let mut changed = false;
+            changed = self.constant.rebuild(&mut merge, &mut zero_canon) || changed;
+            changed = self.param.rebuild(&mut merge, &mut zero_canon) || changed;
+            changed = self.phi.rebuild(&mut merge, &mut two_canon) || changed;
+            changed = self.unary.rebuild(&mut merge, &mut one_canon) || changed;
+            changed = self.binary.rebuild(&mut merge, &mut two_canon) || changed;
+            if !changed {
+                break;
+            }
+        }
+    }
+
+    pub fn saturate(&mut self) {
+        self.rewrite1();
+        self.rebuild();
     }
 }

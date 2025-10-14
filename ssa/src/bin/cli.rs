@@ -21,7 +21,11 @@ pub fn main() -> Result<()> {
 
     for func in &ast.funcs {
         let terms = naive_ssa_translation(func);
-        let egraph = EGraph::from_terms(&terms);
+        let mut egraph = EGraph::from_terms(&terms);
+        let mut tmp = NamedTempFile::new().unwrap();
+        egraph.to_dot(&mut tmp)?;
+        Command::new("xdot").arg(tmp.path()).status().unwrap();
+        egraph.saturate();
         let mut tmp = NamedTempFile::new().unwrap();
         egraph.to_dot(&mut tmp)?;
         Command::new("xdot").arg(tmp.path()).status().unwrap();
