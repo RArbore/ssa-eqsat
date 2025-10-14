@@ -7,7 +7,7 @@ use imp::ast::Interner;
 use imp::grammar::ProgramParser;
 use imp::term::{naive_ssa_translation};
 
-use ssa::EGraph;
+use ssa::egraph::EGraph;
 
 pub fn main() -> Result<()> {
     let mut interner = Interner::new();

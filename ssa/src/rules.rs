@@ -1,0 +1,137 @@
+use db::table::Value;
+use imp::term::BinaryOp;
+
+use crate::egraph::EGraph;
+
+impl EGraph {
+    fn rewrite1(&mut self) {
+        // x + x => 2 * x
+        let mut matches = vec![];
+        for (row, _) in self.binary.rows(false) {
+            if row[0] == BinaryOp::Add as Value && row[1] == row[2] {
+                matches.push((row[1], row[3]))
+            }
+        }
+
+        let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
+        let two = self
+            .constant
+            .insert(&[2, self.uf.makeset().into()], &mut merge)
+            .0[1]
+            .into();
+        for m in matches {
+            let row = [BinaryOp::Mul as Value, two, m.0, m.1];
+            self.binary.insert(&row, &mut merge);
+        }
+    }
+
+    fn rewrite2(&mut self) {
+        // 1 * x => x
+        let mut matches = vec![];
+        for (mul, _) in self.binary.rows(false) {
+            if mul[0] == BinaryOp::Mul as Value {
+                for (one, _) in self.constant.rows(false) {
+                    if one[0] == 1 && one[1] == mul[1] {
+                        matches.push((mul[2], mul[3]));
+                    }
+                }
+            }
+        }
+
+        for m in matches {
+            self.uf.merge(m.0.into(), m.1.into());
+        }
+    }
+
+    fn rewrite3(&mut self) {
+        // (x + 1) - 1 => x
+        let mut matches = vec![];
+        for (sub, _) in self.binary.rows(false) {
+            if sub[0] == BinaryOp::Sub as Value {
+                for (one, _) in self.constant.rows(false) {
+                    if one[0] == 1 && one[1] == sub[2] {
+                        for (add, _) in self.binary.rows(false) {
+                            if add[0] == BinaryOp::Add as Value {
+                                if add[3] == sub[1] && one[1] == add[2] {
+                                    matches.push((add[1], sub[3]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for m in matches {
+            self.uf.merge(m.0.into(), m.1.into());
+        }
+    }
+
+    pub fn rebuild(&mut self) {
+        let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
+        let mut zero_canon = |row: &[Value], dst: &mut Vec<Value>| {
+            let root = self.uf.find(row[1].into()).into();
+            dst.push(row[0]);
+            dst.push(root);
+            root != row[1]
+        };
+        let mut one_canon = |row: &[Value], dst: &mut Vec<Value>| {
+            let input = self.uf.find(row[1].into()).into();
+            let root = self.uf.find(row[2].into()).into();
+            dst.push(row[0]);
+            dst.push(input);
+            dst.push(root);
+            input != row[1] || root != row[2]
+        };
+        let mut two_canon = |row: &[Value], dst: &mut Vec<Value>| {
+            let lhs = self.uf.find(row[1].into()).into();
+            let rhs = self.uf.find(row[2].into()).into();
+            let root = self.uf.find(row[3].into()).into();
+            dst.push(row[0]);
+            dst.push(lhs);
+            dst.push(rhs);
+            dst.push(root);
+            lhs != row[1] || rhs != row[2] || root != row[3]
+        };
+        loop {
+            let mut changed = false;
+            changed = self.constant.rebuild(&mut merge, &mut zero_canon) || changed;
+            changed = self.param.rebuild(&mut merge, &mut zero_canon) || changed;
+            changed = self.phi.rebuild(&mut merge, &mut two_canon) || changed;
+            changed = self.unary.rebuild(&mut merge, &mut one_canon) || changed;
+            changed = self.binary.rebuild(&mut merge, &mut two_canon) || changed;
+            if !changed {
+                break;
+            }
+        }
+    }
+
+    pub fn saturate_rewrites(&mut self) {
+        let mut num_nodes = self.constant.num_rows()
+            + self.param.num_rows()
+            + self.phi.num_rows()
+            + self.unary.num_rows()
+            + self.binary.num_rows();
+        let mut num_classes = self.uf.num_classes();
+        loop {
+            self.rewrite1();
+            self.rewrite2();
+            self.rewrite3();
+
+            let new_num_nodes = self.constant.num_rows()
+                + self.param.num_rows()
+                + self.phi.num_rows()
+                + self.unary.num_rows()
+                + self.binary.num_rows();
+            let new_num_classes = self.uf.num_classes();
+            if new_num_nodes != num_nodes || new_num_classes != num_classes {
+                num_nodes = new_num_nodes;
+                num_classes = new_num_classes
+            } else {
+                break;
+            }
+
+            self.rebuild();
+        }
+    }
+}
