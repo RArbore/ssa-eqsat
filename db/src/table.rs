@@ -171,6 +171,10 @@ impl Table {
         }
     }
 
+    pub fn num_rows(&self) -> RowId {
+        self.rows.num_rows() - self.deleted_rows.len() as RowId
+    }
+
     pub fn rebuild<M, C>(&mut self, merge: &mut M, canon: &mut C) -> bool
     where
         M: FnMut(Value, Value) -> Value,
