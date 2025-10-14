@@ -3,10 +3,6 @@ name = "db"
 version = "0.1.0"
 edition = "2024"
 
-[lib]
-name = "db"
-path = "src/lib.rs"
-
 [dependencies]
 hashbrown = "*"
 rustc-hash = "*"

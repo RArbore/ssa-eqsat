@@ -1,0 +1,18 @@
+[package]
+name = "ssa"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "ssa"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ssa-cli"
+path = "src/bin/cli.rs"
+
+[dependencies]
+tempfile = "*"
+
+db = { path = "../db" }
+imp = { path = "../imp" }

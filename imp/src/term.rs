@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{Result, Write};
 
-use dot::{Edges, GraphWalk, Id, LabelText, Labeller, Nodes, render};
+use enumn::N;
 use string_interner::Symbol as _;
 
 use crate::ast::{ExpressionAST, FunctionAST, Location, StatementAST, Symbol};
@@ -17,13 +17,13 @@ pub enum Term {
     Binary(BinaryOp, TermId, TermId),
 }
 
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, N)]
 pub enum UnaryOp {
     Negate,
     Not,
 }
 
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, N)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -45,6 +45,18 @@ pub struct Terms {
     name: Symbol,
     terms: Vec<Term>,
     intern: BTreeMap<Term, TermId>,
+}
+
+impl Term {
+    fn symbol(&self) -> String {
+        match self {
+            Term::Constant(val) => format!("{}", val),
+            Term::Param(idx) => format!("#{}", idx),
+            Term::Phi(_, _, _) => "Φ".to_string(),
+            Term::Unary(op, _) => format!("{:?}", op),
+            Term::Binary(op, _, _) => format!("{:?}", op),
+        }
+    }
 }
 
 impl Terms {
@@ -201,58 +213,17 @@ fn handle_expr(ctx: &Context, terms: &mut Terms, expr: &ExpressionAST) -> TermId
 }
 
 pub fn terms_to_dot<W: Write>(terms: &Terms, w: &mut W) -> Result<()> {
-    render(terms, w)
-}
-
-impl<'a> GraphWalk<'a, (TermId, Term), (TermId, TermId)> for Terms {
-    fn nodes(&'a self) -> Nodes<'a, (TermId, Term)> {
-        self.terms
-            .iter()
-            .enumerate()
-            .map(|(idx, term)| (idx as TermId, *term))
-            .collect()
-    }
-
-    fn edges(&'a self) -> Edges<'a, (TermId, TermId)> {
-        let mut edges = vec![];
-        for (idx, term) in self.terms.iter().enumerate() {
-            match term {
-                Term::Constant(_) | Term::Param(_) => {}
-                Term::Unary(_, dst) => edges.push((idx as TermId, *dst)),
-                Term::Phi(_, dst1, dst2) | Term::Binary(_, dst1, dst2) => {
-                    edges.push((idx as TermId, *dst1));
-                    edges.push((idx as TermId, *dst2));
-                }
+    writeln!(w, "digraph F{} {{", terms.name.to_usize())?;
+    for (term_id, term) in terms.terms() {
+        writeln!(w, "N{}[label=\"{}\"];", term_id, term.symbol())?;
+        match term {
+            Term::Constant(_) | Term::Param(_) => {}
+            Term::Unary(_, input) => writeln!(w, "N{} -> N{};", input, term_id)?,
+            Term::Phi(_, lhs, rhs) | Term::Binary(_, lhs, rhs) => {
+                writeln!(w, "N{} -> N{};", lhs, term_id)?;
+                writeln!(w, "N{} -> N{};", rhs, term_id)?;
             }
         }
-        edges.into()
     }
-
-    fn source(&'a self, edge: &(TermId, TermId)) -> (TermId, Term) {
-        (edge.1, self.terms[edge.1 as usize])
-    }
-
-    fn target(&'a self, edge: &(TermId, TermId)) -> (TermId, Term) {
-        (edge.0, self.terms[edge.0 as usize])
-    }
-}
-
-impl<'a> Labeller<'a, (TermId, Term), (TermId, TermId)> for Terms {
-    fn graph_id(&'a self) -> Id<'a> {
-        Id::new(format!("F{}", self.name.to_usize())).unwrap()
-    }
-
-    fn node_id(&'a self, n: &(TermId, Term)) -> Id<'a> {
-        Id::new(format!("N{}", n.0)).unwrap()
-    }
-
-    fn node_label(&'a self, n: &(TermId, Term)) -> LabelText<'a> {
-        match n.1 {
-            Term::Constant(val) => LabelText::html(format!("{}", val)),
-            Term::Param(idx) => LabelText::html(format!("#{}", idx)),
-            Term::Phi(_, _, _) => LabelText::html("Φ"),
-            Term::Unary(op, _) => LabelText::html(format!("{:?}", op)),
-            Term::Binary(op, _, _) => LabelText::html(format!("{:?}", op)),
-        }
-    }
+    writeln!(w, "}}")
 }

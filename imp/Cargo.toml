@@ -15,7 +15,7 @@ path = "src/bin/cli.rs"
 lalrpop = "*"
 
 [dependencies]
-dot = "*"
+enumn = "*"
 lalrpop-util = { version = "*", features = ["lexer", "unicode"] }
 string-interner = "*"
 tempfile = "*"

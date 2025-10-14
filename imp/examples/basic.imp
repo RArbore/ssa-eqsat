@@ -1,7 +1,8 @@
 fn basic() {
 	x = 5;
 	y = x + 7;
-	return y;
+	z = x + 7;
+	return y + z;
 }
 
 fn branch(x) {

@@ -39,10 +39,6 @@ struct TableRows<'a> {
     deleted_iter: Peekable<Iter<'a, RowId>>,
 }
 
-pub type MergeFn<'a> = &'a mut dyn FnMut(Value, Value) -> Value;
-
-pub type CanonFn<'a, 'b> = &'a mut dyn FnMut(&[Value], &mut Vec<Value>) -> bool;
-
 fn hash(determinant: &[Value]) -> HashCode {
     let mut hasher = FxHasher::default();
     for val in determinant {
@@ -102,11 +98,14 @@ impl Table {
         self.delta_marker = self.rows.num_rows();
     }
 
-    pub fn insert<'a, 'b, 'c>(
+    pub fn insert<'a, 'b, 'c, M>(
         &'a mut self,
         row: &'b [Value],
-        merge: MergeFn<'c>,
-    ) -> (&'a [Value], RowId) {
+        merge: &mut M,
+    ) -> (&'a [Value], RowId)
+    where
+        M: FnMut(Value, Value) -> Value,
+    {
         let num_determinant = self.num_determinant();
         let has_dependent = self.has_dependent();
         assert_eq!(row.len(), num_determinant + has_dependent as usize);
@@ -172,7 +171,11 @@ impl Table {
         }
     }
 
-    pub fn rebuild(&mut self, merge: MergeFn<'_>, canon: CanonFn<'_, '_>) -> bool {
+    pub fn rebuild<M, C>(&mut self, merge: &mut M, canon: &mut C) -> bool
+    where
+        M: FnMut(Value, Value) -> Value,
+        C: FnMut(&[Value], &mut Vec<Value>) -> bool,
+    {
         let num_columns = self.num_determinant() + self.has_dependent() as usize;
         let mut canonized: Vec<Value> = vec![];
         let mut to_delete: Vec<RowId> = vec![];
@@ -244,15 +247,27 @@ mod tests {
     fn simple_table() {
         let mut table = Table::new(2, true);
         let mut merge = |old, _| old;
-        assert_eq!(table.insert(&[1, 2, 3], &mut merge), (&[1u32, 2, 3] as _, 0));
-        assert_eq!(table.insert(&[1, 2, 4], &mut merge), (&[1u32, 2, 3] as _, 0));
-        assert_eq!(table.insert(&[2, 2, 4], &mut merge), (&[2u32, 2, 4] as _, 1));
+        assert_eq!(
+            table.insert(&[1, 2, 3], &mut merge),
+            (&[1u32, 2, 3] as _, 0)
+        );
+        assert_eq!(
+            table.insert(&[1, 2, 4], &mut merge),
+            (&[1u32, 2, 3] as _, 0)
+        );
+        assert_eq!(
+            table.insert(&[2, 2, 4], &mut merge),
+            (&[2u32, 2, 4] as _, 1)
+        );
         assert_eq!(
             vec![(&[1u32, 2, 3] as _, 0), (&[2u32, 2, 4] as _, 1)],
             table.rows(false).collect::<Vec<_>>()
         );
         assert_eq!(table.delete(1), &[2, 2, 4]);
-        assert_eq!(table.insert(&[2, 2, 5], &mut merge), (&[2u32, 2, 5] as _, 2));
+        assert_eq!(
+            table.insert(&[2, 2, 5], &mut merge),
+            (&[2u32, 2, 5] as _, 2)
+        );
         assert_eq!(
             vec![(&[1u32, 2, 3] as _, 0), (&[2u32, 2, 5] as _, 2)],
             table.rows(false).collect::<Vec<_>>()
