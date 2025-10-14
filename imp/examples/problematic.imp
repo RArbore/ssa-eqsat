@@ -1,0 +1,7 @@
+fn mul_one() {
+	x = 5;
+	y = 3;
+	z = 1 * x;
+	w = 1 * y;
+	return x == y;
+}

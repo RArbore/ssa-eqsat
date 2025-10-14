@@ -78,21 +78,29 @@ impl EGraph {
 
         writeln!(w, "digraph EGraph {{")?;
         writeln!(w, "compound=true;")?;
+        writeln!(w, "rank=same;")?;
+        writeln!(w, "outputorder=edgesfirst;")?;
         for (eclass_idx, eclass) in eclasses.iter().enumerate() {
+            writeln!(w, "subgraph E{}_outer {{", eclass_idx)?;
             writeln!(w, "subgraph E{} {{", eclass_idx)?;
-            writeln!(w, "cluster=true;")?;
+            writeln!(w, "subgraph {{")?;
             for (enode_idx, enode) in eclass.iter().enumerate() {
                 writeln!(w, "N{}_{}[label=\"{}\"];", eclass_idx, enode_idx, enode.0)?;
             }
             writeln!(w, "}}")?;
+            writeln!(w, "cluster=true;")?;
+            writeln!(w, "}}")?;
+            writeln!(w, "style=invis;")?;
+            writeln!(w, "cluster=true;")?;
+            writeln!(w, "}}")?;
         }
         for (eclass_idx, eclass) in eclasses.into_iter().enumerate() {
             for (enode_idx, enode) in eclass.into_iter().enumerate() {
-                for child_idx in enode.1 {
+                for child_eclass in enode.1 {
                     writeln!(
                         w,
                         "N{}_0 -> N{}_{} [ltail=E{}];",
-                        child_idx, eclass_idx, enode_idx, child_idx
+                        child_eclass, eclass_idx, enode_idx, child_eclass
                     )?;
                 }
             }
@@ -118,6 +126,24 @@ impl EGraph {
         for m in matches {
             let row = [BinaryOp::Mul as Value, two, m.0, m.1];
             self.binary.insert(&row, &mut merge);
+        }
+    }
+
+    fn rewrite2(&mut self) {
+        // 1 * x => x
+        let mut matches = vec![];
+        for (mul, _) in self.binary.rows(false) {
+            if mul[0] == BinaryOp::Mul as Value {
+                for (one, _) in self.constant.rows(false) {
+                    if one[0] == 1 && one[1] == mul[1] {
+                        matches.push((mul[2], mul[3]));
+                    }
+                }
+            }
+        }
+
+        for m in matches {
+            self.uf.merge(m.0.into(), m.1.into());
         }
     }
 
@@ -162,6 +188,7 @@ impl EGraph {
 
     pub fn saturate(&mut self) {
         self.rewrite1();
+        self.rewrite2();
         self.rebuild();
     }
 }

@@ -24,10 +24,12 @@ pub fn main() -> Result<()> {
         let mut egraph = EGraph::from_terms(&terms);
         let mut tmp = NamedTempFile::new().unwrap();
         egraph.to_dot(&mut tmp)?;
+        println!("{}", tmp.path().display());
         Command::new("xdot").arg(tmp.path()).status().unwrap();
         egraph.saturate();
         let mut tmp = NamedTempFile::new().unwrap();
         egraph.to_dot(&mut tmp)?;
+        println!("{}", tmp.path().display());
         Command::new("xdot").arg(tmp.path()).status().unwrap();
     }
 
