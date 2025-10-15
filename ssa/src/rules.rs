@@ -1,5 +1,5 @@
 use db::table::Value;
-use imp::term::BinaryOp;
+use imp::term::{BinaryOp, UnaryOp};
 
 use crate::egraph::EGraph;
 use crate::lattices::Interval;
@@ -184,16 +184,69 @@ impl EGraph {
     }
 
     fn analysis2(&mut self) {
-        // [a, b] + [c, d] => [a + c, b + d]
+        // param => [MIN, MAX]
         let mut matches = vec![];
-        for (add, _) in self.binary.rows(false) {
-            if add[0] == BinaryOp::Add as Value {
-                for (lhs, _) in self.interval.rows(false) {
-                    if lhs[0] == add[1] {
-                        for (rhs, _) in self.interval.rows(false) {
-                            if rhs[0] == add[2] {
-                                matches.push((add[3], lhs[1], rhs[1]));
-                            }
+        for (row, _) in self.param.rows(false) {
+            matches.push(row[1]);
+        }
+
+        let mut merge = |a: Value, b: Value| -> Value {
+            self.interval_interner
+                .intern(
+                    self.interval_interner
+                        .get(a.into())
+                        .intersect(&self.interval_interner.get(b.into())),
+                )
+                .into()
+        };
+        for m in matches {
+            let row = [m, self.interval_interner.intern(Interval::bottom()).into()];
+            self.interval.insert(&row, &mut merge);
+        }
+    }
+
+    fn analysis3(&mut self) {
+        // <>([a, b]) => [?, ?]
+        let mut matches = vec![];
+        for (unary, _) in self.unary.rows(false) {
+            for (input, _) in self.interval.rows(false) {
+                if input[0] == unary[1] {
+                    matches.push((unary[2], unary[0], input[1]));
+                }
+            }
+        }
+
+        let mut merge = |a: Value, b: Value| -> Value {
+            self.interval_interner
+                .intern(
+                    self.interval_interner
+                        .get(a.into())
+                        .intersect(&self.interval_interner.get(b.into())),
+                )
+                .into()
+        };
+        for m in matches {
+            let op = UnaryOp::n(m.1).unwrap();
+            let input = self.interval_interner.get(m.2.into());
+            let row = [
+                m.0,
+                self.interval_interner
+                    .intern(input.forward_unary(op))
+                    .into(),
+            ];
+            self.interval.insert(&row, &mut merge);
+        }
+    }
+
+    fn analysis4(&mut self) {
+        // <>([a, b], [c, d]) => [?, ?]
+        let mut matches = vec![];
+        for (binary, _) in self.binary.rows(false) {
+            for (lhs, _) in self.interval.rows(false) {
+                if lhs[0] == binary[1] {
+                    for (rhs, _) in self.interval.rows(false) {
+                        if rhs[0] == binary[2] {
+                            matches.push((binary[3], binary[0], lhs[1], rhs[1]));
                         }
                     }
                 }
@@ -210,15 +263,13 @@ impl EGraph {
                 .into()
         };
         for m in matches {
-            let lhs = self.interval_interner.get(m.1.into());
-            let rhs = self.interval_interner.get(m.2.into());
+            let op = BinaryOp::n(m.1).unwrap();
+            let lhs = self.interval_interner.get(m.2.into());
+            let rhs = self.interval_interner.get(m.3.into());
             let row = [
                 m.0,
                 self.interval_interner
-                    .intern(Interval {
-                        low: lhs.low + rhs.low,
-                        high: lhs.high + rhs.high,
-                    })
+                    .intern(lhs.forward_binary(&rhs, op))
                     .into(),
             ];
             self.interval.insert(&row, &mut merge);
@@ -226,7 +277,11 @@ impl EGraph {
     }
 
     pub fn optimistic_analysis(&mut self) {
-        self.analysis1();
-        self.analysis2();
+        for _ in 0..10 {
+            self.analysis1();
+            self.analysis2();
+            self.analysis3();
+            self.analysis4();
+        }
     }
 }

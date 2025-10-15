@@ -4,6 +4,9 @@ use core::hash::Hash;
 use core::marker::PhantomData;
 use std::collections::HashMap;
 
+use imp::term::{BinaryOp, UnaryOp};
+
+#[derive(Debug)]
 pub struct InternId<T> {
     id: u32,
     _phantom: PhantomData<T>,
@@ -49,6 +52,7 @@ impl<T> From<InternId<T>> for u32 {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Interner<T> {
     obj_to_id: RefCell<HashMap<T, InternId<T>>>,
     id_to_obj: RefCell<Vec<T>>,
@@ -83,7 +87,7 @@ impl<T: Clone + PartialEq + Eq + Hash> Interner<T> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Interval {
     pub(crate) low: i32,
     pub(crate) high: i32,
@@ -116,6 +120,147 @@ impl Interval {
             Some(self.low)
         } else {
             None
+        }
+    }
+
+    pub fn forward_unary(&self, op: UnaryOp) -> Interval {
+        use UnaryOp::*;
+        match op {
+            Negate => Interval {
+                low: -self.high,
+                high: -self.low,
+            },
+            Not => {
+                if self.low == 0 && self.high == 0 {
+                    Interval { low: 1, high: 1 }
+                } else if self.low > 0 || self.high < 0 {
+                    Interval { low: 0, high: 0 }
+                } else {
+                    Interval { low: 0, high: 1 }
+                }
+            }
+        }
+    }
+
+    pub fn forward_binary(&self, other: &Interval, op: BinaryOp) -> Interval {
+        use BinaryOp::*;
+        match op {
+            Add => Interval {
+                low: self.low + other.low,
+                high: self.high + other.high,
+            },
+            Sub => Interval {
+                low: self.low - other.high,
+                high: self.high - other.low,
+            },
+            Mul => Interval {
+                low: min(
+                    min(self.low * other.low, self.low * other.high),
+                    min(self.high * other.low, self.high * other.high),
+                ),
+                high: max(
+                    max(self.low * other.low, self.low * other.high),
+                    max(self.high * other.low, self.high * other.high),
+                ),
+            },
+            Div => todo!(),
+            Rem => todo!(),
+            EE => if let (Some(cons1), Some(cons2)) = (self.try_constant(), other.try_constant()) && cons1 == cons2 {
+                Interval {
+                    low: 1,
+                    high: 1,
+                }
+            } else if self.high < other.low || other.high < self.low {
+                Interval {
+                    low: 0,
+                    high: 0,
+                }
+            } else {
+                Interval {
+                    low: 0,
+                    high: 1,
+                }
+            },
+            NE => if let (Some(cons1), Some(cons2)) = (self.try_constant(), other.try_constant()) && cons1 == cons2 {
+                Interval {
+                    low: 0,
+                    high: 0,
+                }
+            } else if self.high < other.low || other.high < self.low {
+                Interval {
+                    low: 1,
+                    high: 1,
+                }
+            } else {
+                Interval {
+                    low: 0,
+                    high: 1,
+                }
+            },
+            LT => if self.high < other.low {
+                Interval {
+                    low: 1,
+                    high: 1,
+                }
+            } else if self.low >= other.high {
+                Interval {
+                    low: 0,
+                    high: 0,
+                }
+            } else {
+                Interval {
+                    low: 0,
+                    high: 1,
+                }
+            },
+            LE => if self.high <= other.low {
+                Interval {
+                    low: 1,
+                    high: 1,
+                }
+            } else if self.low > other.high {
+                Interval {
+                    low: 0,
+                    high: 0,
+                }
+            } else {
+                Interval {
+                    low: 0,
+                    high: 1,
+                }
+            },
+            GT => if self.high > other.low {
+                Interval {
+                    low: 1,
+                    high: 1,
+                }
+            } else if self.low <= other.high {
+                Interval {
+                    low: 0,
+                    high: 0,
+                }
+            } else {
+                Interval {
+                    low: 0,
+                    high: 1,
+                }
+            },
+            GE => if self.high >= other.low {
+                Interval {
+                    low: 1,
+                    high: 1,
+                }
+            } else if self.low < other.high {
+                Interval {
+                    low: 0,
+                    high: 0,
+                }
+            } else {
+                Interval {
+                    low: 0,
+                    high: 1,
+                }
+            },
         }
     }
 }
