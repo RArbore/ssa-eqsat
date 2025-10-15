@@ -21,9 +21,8 @@ pub fn main() -> Result<()> {
 
     let mut imp_program = String::new();
     stdin().read_to_string(&mut imp_program)?;
-    let mut location = 0;
     let ast = ProgramParser::new()
-        .parse(&mut interner, &mut location, &imp_program)
+        .parse(&mut interner, &imp_program)
         .unwrap();
 
     for func in &ast.funcs {

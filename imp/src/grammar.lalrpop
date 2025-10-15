@@ -2,7 +2,7 @@ use core::str::FromStr;
 
 use crate::ast::*;
 
-grammar(interner: &mut Interner, location: &mut Location);
+grammar(interner: &mut Interner);
 
 pub Program: ProgramAST = {
     FuncList => ProgramAST { funcs: <> },
@@ -18,9 +18,7 @@ FuncList: Vec<FunctionAST> = {
 
 Func: FunctionAST = {
     "fn" <i:Iden> "(" <p:Params> ")" <s:Stmt> => {
-        let loc = *location;
-        *location += 1;
-        FunctionAST { name: interner.get_or_intern(i), params: p, location: loc, body: s }
+        FunctionAST { name: interner.get_or_intern(i), params: p, body: s }
     }
 }
 
@@ -49,33 +47,23 @@ StmtList: Vec<StatementAST> = {
 
 Block: StatementAST = {
     "{" <StmtList> "}" => {
-        let loc = *location;
-        *location += 1;
-        StatementAST::Block(loc, <>)
+        StatementAST::Block(<>)
     }
 }
 
 Stmt: StatementAST = {
     Block => <>,
     <i:Iden> "=" <e:Expr> ";" => {
-        let loc = *location;
-        *location += 1;
-        StatementAST::Assign(loc, interner.get_or_intern(i), e)
+        StatementAST::Assign(interner.get_or_intern(i), e)
     },
     "if" <c:Expr> <ts:Block> <fs:("else" <Block>)?> => {
-        let loc = *location;
-        *location += 1;
-        StatementAST::IfElse(loc, c, Box::new(ts), fs.map(|fs| Box::new(fs)))
+        StatementAST::IfElse(c, Box::new(ts), fs.map(|fs| Box::new(fs)))
     },
     "while" <c:Expr> <s:Block> => {
-        let loc = *location;
-        *location += 1;
-        StatementAST::While(loc, c, Box::new(s))
+        StatementAST::While(c, Box::new(s))
     },
     "return" <e:Expr> ";" => {
-        let loc = *location;
-        *location += 1;
-        StatementAST::Return(loc, e)
+        StatementAST::Return(e)
     },
 }
 
