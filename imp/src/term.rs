@@ -41,7 +41,7 @@ pub enum BinaryOp {
 type Context = BTreeMap<Symbol, TermId>;
 
 #[derive(Debug, Clone)]
-pub struct Terms {
+pub struct SSA {
     name: Symbol,
     terms: Vec<Term>,
     intern: BTreeMap<Term, TermId>,
@@ -59,7 +59,7 @@ impl Term {
     }
 }
 
-impl Terms {
+impl SSA {
     fn add_term(&mut self, term: Term) -> TermId {
         if let Some(id) = self.intern.get(&term) {
             *id
@@ -86,35 +86,35 @@ impl Terms {
     }
 }
 
-pub fn naive_ssa_translation(func: &FunctionAST) -> Terms {
-    let mut terms = Terms {
+pub fn naive_ssa_translation(func: &FunctionAST) -> SSA {
+    let mut ssa = SSA {
         name: func.name,
         terms: vec![],
         intern: BTreeMap::new(),
     };
     let mut ctx = Context::new();
     for (idx, sym) in func.params.iter().enumerate() {
-        ctx.insert(*sym, terms.add_term(Term::Param(idx as i32)));
+        ctx.insert(*sym, ssa.add_term(Term::Param(idx as i32)));
     }
-    handle_stmt(&mut ctx, &mut terms, &func.body);
-    terms
+    handle_stmt(&mut ctx, &mut ssa, &func.body);
+    ssa
 }
 
-fn handle_stmt(ctx: &mut Context, terms: &mut Terms, stmt: &StatementAST) {
+fn handle_stmt(ctx: &mut Context, ssa: &mut SSA, stmt: &StatementAST) {
     use StatementAST::*;
     match stmt {
-        Block(_, stmts) => stmts.iter().for_each(|stmt| handle_stmt(ctx, terms, stmt)),
+        Block(_, stmts) => stmts.iter().for_each(|stmt| handle_stmt(ctx, ssa, stmt)),
         Assign(_, sym, expr) => {
-            let term = handle_expr(ctx, terms, expr);
+            let term = handle_expr(ctx, ssa, expr);
             ctx.insert(*sym, term);
         }
         IfElse(loc, cond_expr, then_stmt, else_stmt) => {
-            handle_expr(ctx, terms, cond_expr);
+            handle_expr(ctx, ssa, cond_expr);
             let mut then_ctx = ctx.clone();
-            handle_stmt(&mut then_ctx, terms, then_stmt);
+            handle_stmt(&mut then_ctx, ssa, then_stmt);
             let mut else_ctx = ctx.clone();
             if let Some(else_stmt) = else_stmt {
-                handle_stmt(&mut else_ctx, terms, else_stmt);
+                handle_stmt(&mut else_ctx, ssa, else_stmt);
             }
             for (sym, then_term) in &then_ctx {
                 let Some(else_term) = else_ctx.get(sym) else {
@@ -122,7 +122,7 @@ fn handle_stmt(ctx: &mut Context, terms: &mut Terms, stmt: &StatementAST) {
                 };
                 ctx.insert(
                     *sym,
-                    terms.add_term(Term::Phi(*loc, *then_term, *else_term)),
+                    ssa.add_term(Term::Phi(*loc, *then_term, *else_term)),
                 );
             }
         }
@@ -130,91 +130,91 @@ fn handle_stmt(ctx: &mut Context, terms: &mut Terms, stmt: &StatementAST) {
             let mut sym_entry_phi_tuples = vec![];
             for (sym, entry) in ctx.iter_mut() {
                 let old_entry = *entry;
-                let phi = terms.alloc_term();
+                let phi = ssa.alloc_term();
                 *entry = phi;
                 sym_entry_phi_tuples.push((*sym, old_entry, phi));
             }
-            handle_expr(ctx, terms, cond_expr);
+            handle_expr(ctx, ssa, cond_expr);
             let mut body_ctx = ctx.clone();
-            handle_stmt(&mut body_ctx, terms, body_stmt);
+            handle_stmt(&mut body_ctx, ssa, body_stmt);
             for (sym, entry, phi) in sym_entry_phi_tuples {
                 let bottom = body_ctx[&sym];
-                terms.set_term(phi, Term::Phi(*loc, entry, bottom));
+                ssa.set_term(phi, Term::Phi(*loc, entry, bottom));
             }
         }
         Return(_, expr) => {
-            handle_expr(ctx, terms, expr);
+            handle_expr(ctx, ssa, expr);
         }
     }
 }
 
-fn handle_expr(ctx: &Context, terms: &mut Terms, expr: &ExpressionAST) -> TermId {
+fn handle_expr(ctx: &Context, ssa: &mut SSA, expr: &ExpressionAST) -> TermId {
     use ExpressionAST::*;
     match expr {
-        NumberLiteral(val) => terms.add_term(Term::Constant(*val)),
+        NumberLiteral(val) => ssa.add_term(Term::Constant(*val)),
         Variable(sym) => ctx[sym],
         Call(_, _) => todo!(),
         Add(lhs, rhs) => {
-            let lhs = handle_expr(ctx, terms, lhs);
-            let rhs = handle_expr(ctx, terms, rhs);
-            terms.add_term(Term::Binary(BinaryOp::Add, lhs, rhs))
+            let lhs = handle_expr(ctx, ssa, lhs);
+            let rhs = handle_expr(ctx, ssa, rhs);
+            ssa.add_term(Term::Binary(BinaryOp::Add, lhs, rhs))
         }
         Subtract(lhs, rhs) => {
-            let lhs = handle_expr(ctx, terms, lhs);
-            let rhs = handle_expr(ctx, terms, rhs);
-            terms.add_term(Term::Binary(BinaryOp::Sub, lhs, rhs))
+            let lhs = handle_expr(ctx, ssa, lhs);
+            let rhs = handle_expr(ctx, ssa, rhs);
+            ssa.add_term(Term::Binary(BinaryOp::Sub, lhs, rhs))
         }
         Multiply(lhs, rhs) => {
-            let lhs = handle_expr(ctx, terms, lhs);
-            let rhs = handle_expr(ctx, terms, rhs);
-            terms.add_term(Term::Binary(BinaryOp::Mul, lhs, rhs))
+            let lhs = handle_expr(ctx, ssa, lhs);
+            let rhs = handle_expr(ctx, ssa, rhs);
+            ssa.add_term(Term::Binary(BinaryOp::Mul, lhs, rhs))
         }
         Divide(lhs, rhs) => {
-            let lhs = handle_expr(ctx, terms, lhs);
-            let rhs = handle_expr(ctx, terms, rhs);
-            terms.add_term(Term::Binary(BinaryOp::Div, lhs, rhs))
+            let lhs = handle_expr(ctx, ssa, lhs);
+            let rhs = handle_expr(ctx, ssa, rhs);
+            ssa.add_term(Term::Binary(BinaryOp::Div, lhs, rhs))
         }
         Modulo(lhs, rhs) => {
-            let lhs = handle_expr(ctx, terms, lhs);
-            let rhs = handle_expr(ctx, terms, rhs);
-            terms.add_term(Term::Binary(BinaryOp::Rem, lhs, rhs))
+            let lhs = handle_expr(ctx, ssa, lhs);
+            let rhs = handle_expr(ctx, ssa, rhs);
+            ssa.add_term(Term::Binary(BinaryOp::Rem, lhs, rhs))
         }
         EqualsEquals(lhs, rhs) => {
-            let lhs = handle_expr(ctx, terms, lhs);
-            let rhs = handle_expr(ctx, terms, rhs);
-            terms.add_term(Term::Binary(BinaryOp::EE, lhs, rhs))
+            let lhs = handle_expr(ctx, ssa, lhs);
+            let rhs = handle_expr(ctx, ssa, rhs);
+            ssa.add_term(Term::Binary(BinaryOp::EE, lhs, rhs))
         }
         NotEquals(lhs, rhs) => {
-            let lhs = handle_expr(ctx, terms, lhs);
-            let rhs = handle_expr(ctx, terms, rhs);
-            terms.add_term(Term::Binary(BinaryOp::NE, lhs, rhs))
+            let lhs = handle_expr(ctx, ssa, lhs);
+            let rhs = handle_expr(ctx, ssa, rhs);
+            ssa.add_term(Term::Binary(BinaryOp::NE, lhs, rhs))
         }
         Less(lhs, rhs) => {
-            let lhs = handle_expr(ctx, terms, lhs);
-            let rhs = handle_expr(ctx, terms, rhs);
-            terms.add_term(Term::Binary(BinaryOp::LT, lhs, rhs))
+            let lhs = handle_expr(ctx, ssa, lhs);
+            let rhs = handle_expr(ctx, ssa, rhs);
+            ssa.add_term(Term::Binary(BinaryOp::LT, lhs, rhs))
         }
         LessEquals(lhs, rhs) => {
-            let lhs = handle_expr(ctx, terms, lhs);
-            let rhs = handle_expr(ctx, terms, rhs);
-            terms.add_term(Term::Binary(BinaryOp::LE, lhs, rhs))
+            let lhs = handle_expr(ctx, ssa, lhs);
+            let rhs = handle_expr(ctx, ssa, rhs);
+            ssa.add_term(Term::Binary(BinaryOp::LE, lhs, rhs))
         }
         Greater(lhs, rhs) => {
-            let lhs = handle_expr(ctx, terms, lhs);
-            let rhs = handle_expr(ctx, terms, rhs);
-            terms.add_term(Term::Binary(BinaryOp::GT, lhs, rhs))
+            let lhs = handle_expr(ctx, ssa, lhs);
+            let rhs = handle_expr(ctx, ssa, rhs);
+            ssa.add_term(Term::Binary(BinaryOp::GT, lhs, rhs))
         }
         GreaterEquals(lhs, rhs) => {
-            let lhs = handle_expr(ctx, terms, lhs);
-            let rhs = handle_expr(ctx, terms, rhs);
-            terms.add_term(Term::Binary(BinaryOp::GE, lhs, rhs))
+            let lhs = handle_expr(ctx, ssa, lhs);
+            let rhs = handle_expr(ctx, ssa, rhs);
+            ssa.add_term(Term::Binary(BinaryOp::GE, lhs, rhs))
         }
     }
 }
 
-pub fn terms_to_dot<W: Write>(terms: &Terms, w: &mut W) -> Result<()> {
-    writeln!(w, "digraph F{} {{", terms.name.to_usize())?;
-    for (term_id, term) in terms.terms() {
+pub fn terms_to_dot<W: Write>(ssa: &SSA, w: &mut W) -> Result<()> {
+    writeln!(w, "digraph F{} {{", ssa.name.to_usize())?;
+    for (term_id, term) in ssa.terms() {
         writeln!(w, "N{}[label=\"{}\"];", term_id, term.symbol())?;
         match term {
             Term::Constant(_) | Term::Param(_) => {}

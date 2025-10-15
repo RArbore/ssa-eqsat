@@ -2,7 +2,7 @@ use std::io::{Result, Write};
 
 use db::table::{Table, Value};
 use db::uf::UnionFind;
-use imp::term::{BinaryOp, Term, Terms, UnaryOp};
+use imp::term::{BinaryOp, Term, SSA, UnaryOp};
 
 use crate::lattices::{Interner, Interval};
 
@@ -33,7 +33,7 @@ impl Analyses {
 }
 
 impl EGraph {
-    pub fn from_terms(terms: &Terms) -> EGraph {
+    pub fn from_terms(ssa: &SSA) -> EGraph {
         let mut egraph = EGraph {
             constant: Table::new(1, true),
             param: Table::new(1, true),
@@ -41,12 +41,12 @@ impl EGraph {
             unary: Table::new(2, true),
             binary: Table::new(3, true),
             analyses: Analyses::new(),
-            uf: UnionFind::new_all_not_equals(terms.terms().count() as u32),
+            uf: UnionFind::new_all_not_equals(ssa.terms().count() as u32),
             interval_interner: Interner::new(),
         };
         let mut merge =
             |a: Value, b: Value| -> Value { egraph.uf.merge(a.into(), b.into()).into() };
-        for (term_id, term) in terms.terms() {
+        for (term_id, term) in ssa.terms() {
             match term {
                 Term::Constant(val) => {
                     egraph.constant.insert(&[val as Value, term_id], &mut merge);
