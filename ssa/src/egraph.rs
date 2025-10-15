@@ -6,6 +6,10 @@ use imp::term::{BinaryOp, Term, Terms, UnaryOp};
 
 use crate::lattices::{Interner, Interval};
 
+pub(crate) struct Analyses {
+    pub(crate) interval: Table,
+}
+
 pub struct EGraph {
     pub(crate) constant: Table,
     pub(crate) param: Table,
@@ -13,11 +17,19 @@ pub struct EGraph {
     pub(crate) unary: Table,
     pub(crate) binary: Table,
 
-    pub(crate) interval: Table,
+    pub(crate) analyses: Analyses,
 
     pub(crate) uf: UnionFind,
 
     pub(crate) interval_interner: Interner<Interval>,
+}
+
+impl Analyses {
+    pub(crate) fn new() -> Self {
+        Analyses {
+            interval: Table::new(1, true),
+        }
+    }
 }
 
 impl EGraph {
@@ -28,7 +40,7 @@ impl EGraph {
             phi: Table::new(3, true),
             unary: Table::new(2, true),
             binary: Table::new(3, true),
-            interval: Table::new(1, true),
+            analyses: Analyses::new(),
             uf: UnionFind::new_all_not_equals(terms.terms().count() as u32),
             interval_interner: Interner::new(),
         };
@@ -63,26 +75,31 @@ impl EGraph {
     }
 
     pub fn to_dot<W: Write>(&self, w: &mut W) -> Result<()> {
-        let mut eclasses: Vec<Vec<(String, Vec<Value>)>> =
-            vec![vec![]; self.uf.num_class_ids() as usize];
+        let mut eclasses: Vec<(Vec<(String, Vec<Value>)>, Option<Interval>)> =
+            vec![(vec![], None); self.uf.num_class_ids() as usize];
+
         for (row, _) in self.constant.rows(false) {
-            eclasses[row[1] as usize].push((format!("{}", row[0 as usize]), vec![]));
+            eclasses[row[1] as usize].0.push((format!("{}", row[0 as usize]), vec![]));
         }
         for (row, _) in self.param.rows(false) {
-            eclasses[row[1] as usize].push((format!("#{}", row[0 as usize]), vec![]));
+            eclasses[row[1] as usize].0.push((format!("#{}", row[0 as usize]), vec![]));
         }
         for (row, _) in self.phi.rows(false) {
-            eclasses[row[3] as usize].push((format!("Φ"), vec![row[1], row[2]]));
+            eclasses[row[3] as usize].0.push((format!("Φ"), vec![row[1], row[2]]));
         }
         for (row, _) in self.unary.rows(false) {
             eclasses[row[2] as usize]
-                .push((format!("{:?}", UnaryOp::n(row[0]).unwrap()), vec![row[1]]));
+                .0.push((format!("{:?}", UnaryOp::n(row[0]).unwrap()), vec![row[1]]));
         }
         for (row, _) in self.binary.rows(false) {
-            eclasses[row[3] as usize].push((
+            eclasses[row[3] as usize].0.push((
                 format!("{:?}", BinaryOp::n(row[0]).unwrap()),
                 vec![row[1], row[2]],
             ));
+        }
+
+        for (row, _) in self.analyses.interval.rows(false) {
+            eclasses[row[0] as usize].1 = Some(self.interval_interner.get(row[1].into()));
         }
 
         writeln!(w, "digraph EGraph {{")?;
@@ -93,11 +110,13 @@ impl EGraph {
             writeln!(w, "subgraph E{}_outer {{", eclass_idx)?;
             writeln!(w, "subgraph E{} {{", eclass_idx)?;
             writeln!(w, "subgraph {{")?;
-            for (enode_idx, enode) in eclass.iter().enumerate() {
+            for (enode_idx, enode) in eclass.0.iter().enumerate() {
                 writeln!(w, "N{}_{}[label=\"{}\"];", eclass_idx, enode_idx, enode.0)?;
             }
             writeln!(w, "}}")?;
-            writeln!(w, "label={};", eclass_idx)?;
+            if let Some(interval) = eclass.1 {
+                writeln!(w, "label=\"[{}, {}]\";", interval.low, interval.high)?;
+            }
             writeln!(w, "cluster=true;")?;
             writeln!(w, "}}")?;
             writeln!(w, "style=invis;")?;
@@ -105,7 +124,7 @@ impl EGraph {
             writeln!(w, "}}")?;
         }
         for (eclass_idx, eclass) in eclasses.into_iter().enumerate() {
-            for (enode_idx, enode) in eclass.into_iter().enumerate() {
+            for (enode_idx, enode) in eclass.0.into_iter().enumerate() {
                 for child_eclass in enode.1 {
                     writeln!(
                         w,

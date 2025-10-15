@@ -1,0 +1,10 @@
+fn identity_loop() {
+	x = 42;
+	y = 10;
+	while y > 0 {
+		x = x + 7;
+		y = y - 1;
+		x = x - 7;
+	}
+	return x;
+}

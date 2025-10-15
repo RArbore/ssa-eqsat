@@ -1,7 +1,9 @@
+use core::mem::replace;
+
 use db::table::Value;
 use imp::term::{BinaryOp, UnaryOp};
 
-use crate::egraph::EGraph;
+use crate::egraph::{Analyses, EGraph};
 use crate::lattices::Interval;
 
 impl EGraph {
@@ -71,7 +73,7 @@ impl EGraph {
     fn rewrite4(&mut self) {
         // [z, z] => z
         let mut matches = vec![];
-        for (row, _) in self.interval.rows(false) {
+        for (row, _) in self.analyses.interval.rows(false) {
             if let Some(cons) = self.interval_interner.get(row[1].into()).try_constant() {
                 matches.push((cons, row[0]));
             }
@@ -179,7 +181,7 @@ impl EGraph {
                     })
                     .into(),
             ];
-            self.interval.insert(&row, &mut merge);
+            self.analyses.interval.insert(&row, &mut merge);
         }
     }
 
@@ -201,15 +203,15 @@ impl EGraph {
         };
         for m in matches {
             let row = [m, self.interval_interner.intern(Interval::bottom()).into()];
-            self.interval.insert(&row, &mut merge);
+            self.analyses.interval.insert(&row, &mut merge);
         }
     }
 
-    fn analysis3(&mut self) {
+    fn analysis3(&mut self, old_analyses: &Analyses) {
         // <>([a, b]) => [?, ?]
         let mut matches = vec![];
         for (unary, _) in self.unary.rows(false) {
-            for (input, _) in self.interval.rows(false) {
+            for (input, _) in old_analyses.interval.rows(false) {
                 if input[0] == unary[1] {
                     matches.push((unary[2], unary[0], input[1]));
                 }
@@ -234,17 +236,17 @@ impl EGraph {
                     .intern(input.forward_unary(op))
                     .into(),
             ];
-            self.interval.insert(&row, &mut merge);
+            self.analyses.interval.insert(&row, &mut merge);
         }
     }
 
-    fn analysis4(&mut self) {
+    fn analysis4(&mut self, old_analyses: &Analyses) {
         // <>([a, b], [c, d]) => [?, ?]
         let mut matches = vec![];
         for (binary, _) in self.binary.rows(false) {
-            for (lhs, _) in self.interval.rows(false) {
+            for (lhs, _) in old_analyses.interval.rows(false) {
                 if lhs[0] == binary[1] {
-                    for (rhs, _) in self.interval.rows(false) {
+                    for (rhs, _) in old_analyses.interval.rows(false) {
                         if rhs[0] == binary[2] {
                             matches.push((binary[3], binary[0], lhs[1], rhs[1]));
                         }
@@ -272,16 +274,65 @@ impl EGraph {
                     .intern(lhs.forward_binary(&rhs, op))
                     .into(),
             ];
-            self.interval.insert(&row, &mut merge);
+            self.analyses.interval.insert(&row, &mut merge);
+        }
+    }
+
+    fn analysis5(&mut self, old_analyses: &Analyses) {
+        // phi(x, y), x = [a, b], y != [_, _] => [a, b]
+        // phi(x, y), x != [_, _], y = [a, b] => [a, b]
+        // phi(x, y), x = [a, b], y = [c, d] => [a, b] \cap [c, d]
+        let mut matches = vec![];
+        for (phi, _) in self.phi.rows(false) {
+            let mut lhs = None;
+            let mut rhs = None;
+            for (interval, _) in old_analyses.interval.rows(false) {
+                if interval[0] == phi[1] {
+                    lhs = Some(interval[1]);
+                }
+                if interval[0] == phi[2] {
+                    rhs = Some(interval[1]);
+                }
+            }
+            match (lhs, rhs) {
+                (Some(interval), None) | (None, Some(interval)) => matches.push((phi[3], interval)),
+                (Some(lhs), Some(rhs)) => matches.push((
+                    phi[3],
+                    self.interval_interner
+                        .intern(
+                            self.interval_interner
+                                .get(lhs.into())
+                                .union(&self.interval_interner.get(rhs.into())),
+                        )
+                        .into(),
+                )),
+                _ => {}
+            }
+        }
+
+        let mut merge = |a: Value, b: Value| -> Value {
+            self.interval_interner
+                .intern(
+                    self.interval_interner
+                        .get(a.into())
+                        .intersect(&self.interval_interner.get(b.into())),
+                )
+                .into()
+        };
+        for m in matches {
+            let row = [m.0, m.1];
+            self.analyses.interval.insert(&row, &mut merge);
         }
     }
 
     pub fn optimistic_analysis(&mut self) {
-        for _ in 0..10 {
+        for _ in 0..100 {
+            let old_analyses = replace(&mut self.analyses, Analyses::new());
             self.analysis1();
             self.analysis2();
-            self.analysis3();
-            self.analysis4();
+            self.analysis3(&old_analyses);
+            self.analysis4(&old_analyses);
+            self.analysis5(&old_analyses);
         }
     }
 }

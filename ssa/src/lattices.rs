@@ -87,7 +87,7 @@ impl<T: Clone + PartialEq + Eq + Hash> Interner<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Interval {
     pub(crate) low: i32,
     pub(crate) high: i32,
@@ -104,14 +104,14 @@ impl Interval {
     pub fn union(&self, other: &Interval) -> Interval {
         Interval {
             low: min(self.low, other.low),
-            high: min(self.high, other.high),
+            high: max(self.high, other.high),
         }
     }
 
     pub fn intersect(&self, other: &Interval) -> Interval {
         Interval {
             low: max(self.low, other.low),
-            high: max(self.high, other.high),
+            high: min(self.high, other.high),
         }
     }
 
@@ -229,12 +229,12 @@ impl Interval {
                     high: 1,
                 }
             },
-            GT => if self.high > other.low {
+            GT => if self.low > other.high {
                 Interval {
                     low: 1,
                     high: 1,
                 }
-            } else if self.low <= other.high {
+            } else if self.high <= other.low {
                 Interval {
                     low: 0,
                     high: 0,
@@ -245,12 +245,12 @@ impl Interval {
                     high: 1,
                 }
             },
-            GE => if self.high >= other.low {
+            GE => if self.low >= other.high {
                 Interval {
                     low: 1,
                     high: 1,
                 }
-            } else if self.low < other.high {
+            } else if self.high < other.low {
                 Interval {
                     low: 0,
                     high: 0,
