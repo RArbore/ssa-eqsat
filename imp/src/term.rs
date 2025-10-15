@@ -44,6 +44,7 @@ pub enum BinaryOp {
 struct Context<'a> {
     vars: BTreeMap<Symbol, TermId>,
     num_blocks: &'a RefCell<BlockId>,
+    last_block: BlockId,
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +52,7 @@ pub struct SSA {
     name: Symbol,
     terms: Vec<Term>,
     intern: BTreeMap<Term, TermId>,
+    preds: BTreeMap<BlockId, Vec<(BlockId, TermId)>>,
 }
 
 impl Term {
@@ -100,11 +102,13 @@ pub fn naive_ssa_translation(func: &FunctionAST) -> SSA {
         name: func.name,
         terms: vec![],
         intern: BTreeMap::new(),
+        preds: BTreeMap::new(),
     };
-    let num_blocks = RefCell::new(0);
+    let num_blocks = RefCell::new(1);
     let mut ctx = Context {
         vars: BTreeMap::new(),
         num_blocks: &num_blocks,
+        last_block: 0,
     };
     for (idx, sym) in func.params.iter().enumerate() {
         ctx.vars.insert(*sym, ssa.add_term(Term::Param(idx as i32)));
@@ -114,6 +118,13 @@ pub fn naive_ssa_translation(func: &FunctionAST) -> SSA {
 }
 
 impl<'a> Context<'a> {
+    fn new_block(&self) -> BlockId {
+        let mut num = self.num_blocks.borrow_mut();
+        let id = *num;
+        *num += 1;
+        id
+    }
+
     fn handle_stmt(&mut self, ssa: &mut SSA, stmt: &StatementAST) {
         use StatementAST::*;
         match stmt {
@@ -123,20 +134,44 @@ impl<'a> Context<'a> {
                 self.vars.insert(*sym, term);
             }
             IfElse(cond_expr, then_stmt, else_stmt) => {
-                self.handle_expr(ssa, cond_expr);
+                let true_cond = self.handle_expr(ssa, cond_expr);
+                let false_cond = ssa.add_term(Term::Unary(UnaryOp::Not, true_cond));
+                let true_term = ssa.add_term(Term::Constant(1));
+
                 let mut then_ctx = self.clone();
+                let true_block = self.new_block();
+                ssa.preds
+                    .insert(true_block, vec![(self.last_block, true_cond)]);
+                then_ctx.last_block = true_block;
                 then_ctx.handle_stmt(ssa, then_stmt);
+
                 let mut else_ctx = self.clone();
                 if let Some(else_stmt) = else_stmt {
+                    let false_block = self.new_block();
+                    ssa.preds
+                        .insert(false_block, vec![(self.last_block, false_cond)]);
+                    else_ctx.last_block = false_block;
                     else_ctx.handle_stmt(ssa, else_stmt);
                 }
+
+                let merge_block = self.new_block();
+                ssa.preds.insert(
+                    merge_block,
+                    vec![
+                        (then_ctx.last_block, true_term),
+                        (else_ctx.last_block, true_term),
+                    ],
+                );
                 for (sym, then_term) in &then_ctx.vars {
                     let Some(else_term) = else_ctx.vars.get(sym) else {
                         continue;
                     };
-                    self.vars
-                        .insert(*sym, ssa.add_term(Term::Phi(loc, *then_term, *else_term)));
+                    self.vars.insert(
+                        *sym,
+                        ssa.add_term(Term::Phi(merge_block, *then_term, *else_term)),
+                    );
                 }
+                self.last_block = merge_block;
             }
             While(cond_expr, body_stmt) => {
                 let mut sym_entry_phi_tuples = vec![];
@@ -146,13 +181,32 @@ impl<'a> Context<'a> {
                     *entry = phi;
                     sym_entry_phi_tuples.push((*sym, old_entry, phi));
                 }
-                self.handle_expr(ssa, cond_expr);
+
+                let entry_block = self.last_block;
+                let pred_block = self.new_block();
+                self.last_block = pred_block;
+
+                let true_cond = self.handle_expr(ssa, cond_expr);
+                let false_cond = ssa.add_term(Term::Unary(UnaryOp::Not, true_cond));
+                let true_term = ssa.add_term(Term::Constant(1));
+
+                let body_block = self.new_block();
                 let mut body_ctx = self.clone();
+                body_ctx.last_block = body_block;
                 body_ctx.handle_stmt(ssa, body_stmt);
                 for (sym, entry, phi) in sym_entry_phi_tuples {
                     let bottom = body_ctx.vars[&sym];
-                    ssa.set_term(phi, Term::Phi(loc, entry, bottom));
+                    ssa.set_term(phi, Term::Phi(pred_block, entry, bottom));
                 }
+                ssa.preds.insert(
+                    pred_block,
+                    vec![(entry_block, true_term), (body_ctx.last_block, true_term)],
+                );
+                ssa.preds.insert(body_block, vec![(pred_block, true_cond)]);
+
+                let exit_block = self.new_block();
+                ssa.preds.insert(exit_block, vec![(pred_block, false_cond)]);
+                self.last_block = exit_block;
             }
             Return(expr) => {
                 self.handle_expr(ssa, expr);
@@ -223,20 +277,20 @@ impl<'a> Context<'a> {
             }
         }
     }
+}
 
-    pub fn terms_to_dot<W: Write>(ssa: &SSA, w: &mut W) -> Result<()> {
-        writeln!(w, "digraph F{} {{", ssa.name.to_usize())?;
-        for (term_id, term) in ssa.terms() {
-            writeln!(w, "N{}[label=\"{}\"];", term_id, term.symbol())?;
-            match term {
-                Term::Constant(_) | Term::Param(_) => {}
-                Term::Unary(_, input) => writeln!(w, "N{} -> N{};", input, term_id)?,
-                Term::Phi(_, lhs, rhs) | Term::Binary(_, lhs, rhs) => {
-                    writeln!(w, "N{} -> N{};", lhs, term_id)?;
-                    writeln!(w, "N{} -> N{};", rhs, term_id)?;
-                }
+pub fn terms_to_dot<W: Write>(ssa: &SSA, w: &mut W) -> Result<()> {
+    writeln!(w, "digraph F{} {{", ssa.name.to_usize())?;
+    for (term_id, term) in ssa.terms() {
+        writeln!(w, "N{}[label=\"{}\"];", term_id, term.symbol())?;
+        match term {
+            Term::Constant(_) | Term::Param(_) => {}
+            Term::Unary(_, input) => writeln!(w, "N{} -> N{};", input, term_id)?,
+            Term::Phi(_, lhs, rhs) | Term::Binary(_, lhs, rhs) => {
+                writeln!(w, "N{} -> N{};", lhs, term_id)?;
+                writeln!(w, "N{} -> N{};", rhs, term_id)?;
             }
         }
-        writeln!(w, "}}")
     }
+    writeln!(w, "}}")
 }
