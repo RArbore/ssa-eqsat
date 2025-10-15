@@ -159,7 +159,14 @@ impl<'a> Context<'a> {
                     merge_block,
                     vec![
                         (then_ctx.last_block, true_term),
-                        (else_ctx.last_block, true_term),
+                        (
+                            else_ctx.last_block,
+                            if else_stmt.is_some() {
+                                true_term
+                            } else {
+                                false_cond
+                            },
+                        ),
                     ],
                 );
                 for (sym, then_term) in &then_ctx.vars {
@@ -279,16 +286,43 @@ impl<'a> Context<'a> {
     }
 }
 
-pub fn terms_to_dot<W: Write>(ssa: &SSA, w: &mut W) -> Result<()> {
+pub fn ssa_to_dot<W: Write>(ssa: &SSA, w: &mut W) -> Result<()> {
     writeln!(w, "digraph F{} {{", ssa.name.to_usize())?;
+    writeln!(w, "B0[label=\"0\", shape=\"box\", style=\"rounded\"];")?;
+    for (block, preds) in &ssa.preds {
+        writeln!(
+            w,
+            "B{}[label=\"{}\", shape=\"box\", style=\"rounded\"];",
+            block, block
+        )?;
+        for (pred, cond) in preds {
+            writeln!(w, "B{} -> B{};", pred, block)?;
+            if ssa.terms[*cond as usize] != Term::Constant(1) {
+                writeln!(
+                    w,
+                    "N{} -> B{} [style=\"dotted\", constraint=false];",
+                    cond, block
+                )?;
+            }
+        }
+    }
     for (term_id, term) in ssa.terms() {
         writeln!(w, "N{}[label=\"{}\"];", term_id, term.symbol())?;
         match term {
             Term::Constant(_) | Term::Param(_) => {}
             Term::Unary(_, input) => writeln!(w, "N{} -> N{};", input, term_id)?,
-            Term::Phi(_, lhs, rhs) | Term::Binary(_, lhs, rhs) => {
+            Term::Binary(_, lhs, rhs) => {
                 writeln!(w, "N{} -> N{};", lhs, term_id)?;
                 writeln!(w, "N{} -> N{};", rhs, term_id)?;
+            }
+            Term::Phi(block, lhs, rhs) => {
+                writeln!(w, "N{} -> N{};", lhs, term_id)?;
+                writeln!(w, "N{} -> N{};", rhs, term_id)?;
+                writeln!(
+                    w,
+                    "B{} -> N{} [style=\"dashed\", constraint=false];",
+                    block, term_id
+                )?;
             }
         }
     }
