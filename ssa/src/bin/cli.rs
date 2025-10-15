@@ -27,11 +27,10 @@ pub fn main() -> Result<()> {
 
     for func in &ast.funcs {
         let terms = naive_ssa_translation(func);
-        let mut egraph = EGraph::from_terms(&terms);
+        let mut egraph = EGraph::from_ssa(&terms);
 
         xdot(&egraph)?;
         egraph.saturate_rewrites();
-        xdot(&egraph)?;
         egraph.optimistic_analysis();
         egraph.saturate_rewrites();
         xdot(&egraph)?;

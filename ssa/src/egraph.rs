@@ -33,7 +33,7 @@ impl Analyses {
 }
 
 impl EGraph {
-    pub fn from_terms(ssa: &SSA) -> EGraph {
+    pub fn from_ssa(ssa: &SSA) -> EGraph {
         let mut egraph = EGraph {
             constant: Table::new(1, true),
             param: Table::new(1, true),
