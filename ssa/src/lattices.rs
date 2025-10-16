@@ -126,7 +126,7 @@ impl Interval {
                 i32::MAX
             } else {
                 self.high
-            }
+            },
         }
     }
 
@@ -153,7 +153,7 @@ impl Interval {
                 } else {
                     Interval { low: 0, high: 1 }
                 }
-            })
+            }),
         })()
         .unwrap_or(Interval::bottom())
     }
@@ -171,12 +171,24 @@ impl Interval {
             }),
             Mul => Some(Interval {
                 low: min(
-                    min(self.low.checked_mul(other.low)?, self.low.checked_mul(other.high)?),
-                    min(self.high.checked_mul(other.low)?, self.high.checked_mul(other.high)?),
+                    min(
+                        self.low.checked_mul(other.low)?,
+                        self.low.checked_mul(other.high)?,
+                    ),
+                    min(
+                        self.high.checked_mul(other.low)?,
+                        self.high.checked_mul(other.high)?,
+                    ),
                 ),
                 high: max(
-                    max(self.low.checked_mul(other.low)?, self.low.checked_mul(other.high)?),
-                    max(self.high.checked_mul(other.low)?, self.high.checked_mul(other.high)?),
+                    max(
+                        self.low.checked_mul(other.low)?,
+                        self.low.checked_mul(other.high)?,
+                    ),
+                    max(
+                        self.high.checked_mul(other.low)?,
+                        self.high.checked_mul(other.high)?,
+                    ),
                 ),
             }),
             Div => todo!(),
@@ -241,5 +253,54 @@ impl Interval {
             }),
         })()
         .unwrap_or(Interval::bottom())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Offset {
+    Top,
+    Offset(i32),
+    Bottom,
+}
+
+impl Offset {
+    pub fn bottom() -> Offset {
+        Offset::Bottom
+    }
+
+    pub fn meet(&self, other: &Offset) -> Offset {
+        match (self, other) {
+            (Offset::Top, x) | (x, Offset::Top) => *x,
+            (Offset::Bottom, _) | (_, Offset::Bottom) => Offset::Bottom,
+            (Offset::Offset { .. }, Offset::Offset { .. }) => {
+                if self == other {
+                    *self
+                } else {
+                    Offset::Bottom
+                }
+            }
+        }
+    }
+
+    pub fn join(&self, other: &Offset) -> Offset {
+        match (self, other) {
+            (Offset::Bottom, x) | (x, Offset::Bottom) => *x,
+            (Offset::Top, _) | (_, Offset::Top) => Offset::Top,
+            (Offset::Offset { .. }, Offset::Offset { .. }) => {
+                if self == other {
+                    *self
+                } else {
+                    Offset::Top
+                }
+            }
+        }
+    }
+
+    pub fn try_offset(&self) -> Option<i32> {
+        if let Offset::Offset(offset) = self {
+            Some(*offset)
+        } else {
+            None
+        }
     }
 }

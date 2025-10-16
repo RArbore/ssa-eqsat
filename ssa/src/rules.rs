@@ -344,7 +344,17 @@ impl EGraph {
                 }
             })
             .collect();
-        let widening_eclasses: BTreeSet<Value> = self.phi.rows(false).filter_map(|(row, _)| if widening_points.contains(&row[0]) { Some(row[3]) } else { None }).collect();
+        let widening_eclasses: BTreeSet<Value> = self
+            .phi
+            .rows(false)
+            .filter_map(|(row, _)| {
+                if widening_points.contains(&row[0]) {
+                    Some(row[3])
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let mut widen = |this_iter: Value, last_iter: Value| -> Value {
             self.interval_interner
