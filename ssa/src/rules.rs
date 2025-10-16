@@ -215,16 +215,27 @@ impl EGraph {
         // phi(x, y), x = [a, b], y = [c, d] => [a, b] \cap [c, d]
         let mut matches = vec![];
         for (phi, _) in self.phi.rows(false) {
+            let preds = &self.cfg[&phi[0]];
+            let lhs_reachable = old_analyses
+                .reachability
+                .rows(false)
+                .any(|(row, _)| row[0] == preds[0].0);
+            let rhs_reachable = old_analyses
+                .reachability
+                .rows(false)
+                .any(|(row, _)| row[0] == preds[1].0);
+
             let mut lhs = None;
             let mut rhs = None;
             for (interval, _) in old_analyses.interval.rows(false) {
-                if interval[0] == phi[1] {
+                if interval[0] == phi[1] && lhs_reachable {
                     lhs = Some(interval[1]);
                 }
-                if interval[0] == phi[2] {
+                if interval[0] == phi[2] && rhs_reachable {
                     rhs = Some(interval[1]);
                 }
             }
+
             match (lhs, rhs) {
                 (Some(interval), None) | (None, Some(interval)) => matches.push((phi[3], interval)),
                 (Some(lhs), Some(rhs)) => matches.push((
@@ -256,6 +267,26 @@ impl EGraph {
         }
     }
 
+    fn analysis6(&mut self, old_analyses: &Analyses) {
+        let mut merge = |_, _| panic!();
+        self.analyses.reachability.insert(&[0], &mut merge);
+        for (block, preds) in &self.cfg {
+            if preds.iter().any(|(pred, cond)| {
+                old_analyses
+                    .reachability
+                    .rows(false)
+                    .any(|(row, _)| row[0] == *pred)
+                    && old_analyses.interval.rows(false).any(|(row, _)| {
+                        *cond == row[0].into()
+                            && self.interval_interner.get(row[1].into())
+                                != Interval { low: 0, high: 0 }
+                    })
+            }) {
+                self.analyses.reachability.insert(&[*block], &mut merge);
+            }
+        }
+    }
+
     pub fn optimistic_analysis(&mut self) {
         for _ in 0..100 {
             let old_analyses = replace(&mut self.analyses, Analyses::new());
@@ -264,6 +295,7 @@ impl EGraph {
             self.analysis3(&old_analyses);
             self.analysis4(&old_analyses);
             self.analysis5(&old_analyses);
+            self.analysis6(&old_analyses);
         }
     }
 

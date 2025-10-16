@@ -1,10 +1,13 @@
+use std::collections::BTreeMap;
 use std::io::{Result, Write};
 
 use db::table::{Table, Value};
-use db::uf::UnionFind;
-use imp::term::{BinaryOp, CFG, Term, SSA, UnaryOp};
+use db::uf::{ClassId, UnionFind};
+use imp::term::{BinaryOp, BlockId, SSA, Term, UnaryOp};
 
 use crate::lattices::{Interner, Interval};
+
+pub(crate) type CFG = BTreeMap<BlockId, Vec<(BlockId, ClassId)>>;
 
 pub(crate) struct Analyses {
     pub(crate) reachability: Table,
@@ -44,7 +47,19 @@ impl EGraph {
             unary: Table::new(2, true),
             binary: Table::new(3, true),
             analyses: Analyses::new(),
-            cfg: ssa.cfg.clone(),
+            cfg: ssa
+                .cfg
+                .iter()
+                .map(|(block, preds)| {
+                    (
+                        *block,
+                        preds
+                            .iter()
+                            .map(|(block, term)| (*block, ClassId::from(*term)))
+                            .collect(),
+                    )
+                })
+                .collect(),
             uf: UnionFind::new_all_not_equals(ssa.terms().count() as u32),
             interval_interner: Interner::new(),
         };
@@ -83,17 +98,24 @@ impl EGraph {
             vec![(vec![], None); self.uf.num_class_ids() as usize];
 
         for (row, _) in self.constant.rows(false) {
-            eclasses[row[1] as usize].0.push((format!("{}", row[0 as usize]), vec![]));
+            eclasses[row[1] as usize]
+                .0
+                .push((format!("{}", row[0 as usize]), vec![]));
         }
         for (row, _) in self.param.rows(false) {
-            eclasses[row[1] as usize].0.push((format!("#{}", row[0 as usize]), vec![]));
+            eclasses[row[1] as usize]
+                .0
+                .push((format!("#{}", row[0 as usize]), vec![]));
         }
         for (row, _) in self.phi.rows(false) {
-            eclasses[row[3] as usize].0.push((format!("Φ"), vec![row[1], row[2]]));
+            eclasses[row[3] as usize]
+                .0
+                .push((format!("Φ"), vec![row[1], row[2]]));
         }
         for (row, _) in self.unary.rows(false) {
             eclasses[row[2] as usize]
-                .0.push((format!("{:?}", UnaryOp::n(row[0]).unwrap()), vec![row[1]]));
+                .0
+                .push((format!("{:?}", UnaryOp::n(row[0]).unwrap()), vec![row[1]]));
         }
         for (row, _) in self.binary.rows(false) {
             eclasses[row[3] as usize].0.push((
