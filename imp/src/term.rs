@@ -47,12 +47,14 @@ struct Context<'a> {
     last_block: BlockId,
 }
 
+pub type CFG = BTreeMap<BlockId, Vec<(BlockId, TermId)>>;
+
 #[derive(Debug, Clone)]
 pub struct SSA {
-    name: Symbol,
-    terms: Vec<Term>,
-    intern: BTreeMap<Term, TermId>,
-    preds: BTreeMap<BlockId, Vec<(BlockId, TermId)>>,
+    pub name: Symbol,
+    pub terms: Vec<Term>,
+    pub intern: BTreeMap<Term, TermId>,
+    pub cfg: CFG,
 }
 
 impl Term {
@@ -102,7 +104,7 @@ pub fn naive_ssa_translation(func: &FunctionAST) -> SSA {
         name: func.name,
         terms: vec![],
         intern: BTreeMap::new(),
-        preds: BTreeMap::new(),
+        cfg: BTreeMap::new(),
     };
     let num_blocks = RefCell::new(1);
     let mut ctx = Context {
@@ -140,7 +142,7 @@ impl<'a> Context<'a> {
 
                 let mut then_ctx = self.clone();
                 let true_block = self.new_block();
-                ssa.preds
+                ssa.cfg
                     .insert(true_block, vec![(self.last_block, true_cond)]);
                 then_ctx.last_block = true_block;
                 then_ctx.handle_stmt(ssa, then_stmt);
@@ -148,14 +150,14 @@ impl<'a> Context<'a> {
                 let mut else_ctx = self.clone();
                 if let Some(else_stmt) = else_stmt {
                     let false_block = self.new_block();
-                    ssa.preds
+                    ssa.cfg
                         .insert(false_block, vec![(self.last_block, false_cond)]);
                     else_ctx.last_block = false_block;
                     else_ctx.handle_stmt(ssa, else_stmt);
                 }
 
                 let merge_block = self.new_block();
-                ssa.preds.insert(
+                ssa.cfg.insert(
                     merge_block,
                     vec![
                         (then_ctx.last_block, true_term),
@@ -205,14 +207,14 @@ impl<'a> Context<'a> {
                     let bottom = body_ctx.vars[&sym];
                     ssa.set_term(phi, Term::Phi(pred_block, entry, bottom));
                 }
-                ssa.preds.insert(
+                ssa.cfg.insert(
                     pred_block,
                     vec![(entry_block, true_term), (body_ctx.last_block, true_term)],
                 );
-                ssa.preds.insert(body_block, vec![(pred_block, true_cond)]);
+                ssa.cfg.insert(body_block, vec![(pred_block, true_cond)]);
 
                 let exit_block = self.new_block();
-                ssa.preds.insert(exit_block, vec![(pred_block, false_cond)]);
+                ssa.cfg.insert(exit_block, vec![(pred_block, false_cond)]);
                 self.last_block = exit_block;
             }
             Return(expr) => {
@@ -289,13 +291,13 @@ impl<'a> Context<'a> {
 pub fn ssa_to_dot<W: Write>(ssa: &SSA, w: &mut W) -> Result<()> {
     writeln!(w, "digraph F{} {{", ssa.name.to_usize())?;
     writeln!(w, "B0[label=\"0\", shape=\"box\", style=\"rounded\"];")?;
-    for (block, preds) in &ssa.preds {
+    for (block, cfg) in &ssa.cfg {
         writeln!(
             w,
             "B{}[label=\"{}\", shape=\"box\", style=\"rounded\"];",
             block, block
         )?;
-        for (pred, cond) in preds {
+        for (pred, cond) in cfg {
             writeln!(w, "B{} -> B{};", pred, block)?;
             if ssa.terms[*cond as usize] != Term::Constant(1) {
                 writeln!(

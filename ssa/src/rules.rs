@@ -86,75 +86,6 @@ impl EGraph {
         }
     }
 
-    pub fn rebuild(&mut self) {
-        let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
-        let mut zero_canon = |row: &[Value], dst: &mut Vec<Value>| {
-            let root = self.uf.find(row[1].into()).into();
-            dst.push(row[0]);
-            dst.push(root);
-            root != row[1]
-        };
-        let mut one_canon = |row: &[Value], dst: &mut Vec<Value>| {
-            let input = self.uf.find(row[1].into()).into();
-            let root = self.uf.find(row[2].into()).into();
-            dst.push(row[0]);
-            dst.push(input);
-            dst.push(root);
-            input != row[1] || root != row[2]
-        };
-        let mut two_canon = |row: &[Value], dst: &mut Vec<Value>| {
-            let lhs = self.uf.find(row[1].into()).into();
-            let rhs = self.uf.find(row[2].into()).into();
-            let root = self.uf.find(row[3].into()).into();
-            dst.push(row[0]);
-            dst.push(lhs);
-            dst.push(rhs);
-            dst.push(root);
-            lhs != row[1] || rhs != row[2] || root != row[3]
-        };
-        loop {
-            let mut changed = false;
-            changed = self.constant.rebuild(&mut merge, &mut zero_canon) || changed;
-            changed = self.param.rebuild(&mut merge, &mut zero_canon) || changed;
-            changed = self.phi.rebuild(&mut merge, &mut two_canon) || changed;
-            changed = self.unary.rebuild(&mut merge, &mut one_canon) || changed;
-            changed = self.binary.rebuild(&mut merge, &mut two_canon) || changed;
-            if !changed {
-                break;
-            }
-        }
-    }
-
-    pub fn saturate_rewrites(&mut self) {
-        let mut num_nodes = self.constant.num_rows()
-            + self.param.num_rows()
-            + self.phi.num_rows()
-            + self.unary.num_rows()
-            + self.binary.num_rows();
-        let mut num_classes = self.uf.num_classes();
-        loop {
-            self.rewrite1();
-            self.rewrite2();
-            self.rewrite3();
-            self.rewrite4();
-
-            let new_num_nodes = self.constant.num_rows()
-                + self.param.num_rows()
-                + self.phi.num_rows()
-                + self.unary.num_rows()
-                + self.binary.num_rows();
-            let new_num_classes = self.uf.num_classes();
-            if new_num_nodes != num_nodes || new_num_classes != num_classes {
-                num_nodes = new_num_nodes;
-                num_classes = new_num_classes
-            } else {
-                break;
-            }
-
-            self.rebuild();
-        }
-    }
-
     fn analysis1(&mut self) {
         // z => [z, z]
         let mut matches = vec![];
@@ -333,6 +264,75 @@ impl EGraph {
             self.analysis3(&old_analyses);
             self.analysis4(&old_analyses);
             self.analysis5(&old_analyses);
+        }
+    }
+
+    pub fn rebuild(&mut self) {
+        let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
+        let mut zero_canon = |row: &[Value], dst: &mut Vec<Value>| {
+            let root = self.uf.find(row[1].into()).into();
+            dst.push(row[0]);
+            dst.push(root);
+            root != row[1]
+        };
+        let mut one_canon = |row: &[Value], dst: &mut Vec<Value>| {
+            let input = self.uf.find(row[1].into()).into();
+            let root = self.uf.find(row[2].into()).into();
+            dst.push(row[0]);
+            dst.push(input);
+            dst.push(root);
+            input != row[1] || root != row[2]
+        };
+        let mut two_canon = |row: &[Value], dst: &mut Vec<Value>| {
+            let lhs = self.uf.find(row[1].into()).into();
+            let rhs = self.uf.find(row[2].into()).into();
+            let root = self.uf.find(row[3].into()).into();
+            dst.push(row[0]);
+            dst.push(lhs);
+            dst.push(rhs);
+            dst.push(root);
+            lhs != row[1] || rhs != row[2] || root != row[3]
+        };
+        loop {
+            let mut changed = false;
+            changed = self.constant.rebuild(&mut merge, &mut zero_canon) || changed;
+            changed = self.param.rebuild(&mut merge, &mut zero_canon) || changed;
+            changed = self.phi.rebuild(&mut merge, &mut two_canon) || changed;
+            changed = self.unary.rebuild(&mut merge, &mut one_canon) || changed;
+            changed = self.binary.rebuild(&mut merge, &mut two_canon) || changed;
+            if !changed {
+                break;
+            }
+        }
+    }
+
+    pub fn saturate_rewrites(&mut self) {
+        let mut num_nodes = self.constant.num_rows()
+            + self.param.num_rows()
+            + self.phi.num_rows()
+            + self.unary.num_rows()
+            + self.binary.num_rows();
+        let mut num_classes = self.uf.num_classes();
+        loop {
+            self.rewrite1();
+            self.rewrite2();
+            self.rewrite3();
+            self.rewrite4();
+
+            let new_num_nodes = self.constant.num_rows()
+                + self.param.num_rows()
+                + self.phi.num_rows()
+                + self.unary.num_rows()
+                + self.binary.num_rows();
+            let new_num_classes = self.uf.num_classes();
+            if new_num_nodes != num_nodes || new_num_classes != num_classes {
+                num_nodes = new_num_nodes;
+                num_classes = new_num_classes
+            } else {
+                break;
+            }
+
+            self.rebuild();
         }
     }
 }

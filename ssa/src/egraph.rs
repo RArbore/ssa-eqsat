@@ -2,11 +2,12 @@ use std::io::{Result, Write};
 
 use db::table::{Table, Value};
 use db::uf::UnionFind;
-use imp::term::{BinaryOp, Term, SSA, UnaryOp};
+use imp::term::{BinaryOp, CFG, Term, SSA, UnaryOp};
 
 use crate::lattices::{Interner, Interval};
 
 pub(crate) struct Analyses {
+    pub(crate) reachability: Table,
     pub(crate) interval: Table,
 }
 
@@ -19,14 +20,16 @@ pub struct EGraph {
 
     pub(crate) analyses: Analyses,
 
-    pub(crate) uf: UnionFind,
+    pub(crate) cfg: CFG,
 
+    pub(crate) uf: UnionFind,
     pub(crate) interval_interner: Interner<Interval>,
 }
 
 impl Analyses {
     pub(crate) fn new() -> Self {
         Analyses {
+            reachability: Table::new(1, false),
             interval: Table::new(1, true),
         }
     }
@@ -41,6 +44,7 @@ impl EGraph {
             unary: Table::new(2, true),
             binary: Table::new(3, true),
             analyses: Analyses::new(),
+            cfg: ssa.cfg.clone(),
             uf: UnionFind::new_all_not_equals(ssa.terms().count() as u32),
             interval_interner: Interner::new(),
         };
