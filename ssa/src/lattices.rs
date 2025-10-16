@@ -125,12 +125,12 @@ impl Interval {
 
     pub fn forward_unary(&self, op: UnaryOp) -> Interval {
         use UnaryOp::*;
-        match op {
-            Negate => Interval {
-                low: -self.high,
-                high: -self.low,
-            },
-            Not => {
+        (|| match op {
+            Negate => Some(Interval {
+                low: self.high.checked_neg()?,
+                high: self.low.checked_neg()?,
+            }),
+            Not => Some({
                 if self.low == 0 && self.high == 0 {
                     Interval { low: 1, high: 1 }
                 } else if self.low > 0 || self.high < 0 {
@@ -138,129 +138,93 @@ impl Interval {
                 } else {
                     Interval { low: 0, high: 1 }
                 }
-            }
-        }
+            })
+        })()
+        .unwrap_or(Interval::bottom())
     }
 
     pub fn forward_binary(&self, other: &Interval, op: BinaryOp) -> Interval {
         use BinaryOp::*;
-        match op {
-            Add => Interval {
-                low: self.low + other.low,
-                high: self.high + other.high,
-            },
-            Sub => Interval {
-                low: self.low - other.high,
-                high: self.high - other.low,
-            },
-            Mul => Interval {
+        (|| match op {
+            Add => Some(Interval {
+                low: self.low.checked_add(other.low)?,
+                high: self.high.checked_add(other.high)?,
+            }),
+            Sub => Some(Interval {
+                low: self.low.checked_sub(other.high)?,
+                high: self.high.checked_sub(other.low)?,
+            }),
+            Mul => Some(Interval {
                 low: min(
-                    min(self.low * other.low, self.low * other.high),
-                    min(self.high * other.low, self.high * other.high),
+                    min(self.low.checked_mul(other.low)?, self.low.checked_mul(other.high)?),
+                    min(self.high.checked_mul(other.low)?, self.high.checked_mul(other.high)?),
                 ),
                 high: max(
-                    max(self.low * other.low, self.low * other.high),
-                    max(self.high * other.low, self.high * other.high),
+                    max(self.low.checked_mul(other.low)?, self.low.checked_mul(other.high)?),
+                    max(self.high.checked_mul(other.low)?, self.high.checked_mul(other.high)?),
                 ),
-            },
+            }),
             Div => todo!(),
             Rem => todo!(),
-            EE => if let (Some(cons1), Some(cons2)) = (self.try_constant(), other.try_constant()) && cons1 == cons2 {
-                Interval {
-                    low: 1,
-                    high: 1,
+            EE => Some({
+                if let (Some(cons1), Some(cons2)) = (self.try_constant(), other.try_constant())
+                    && cons1 == cons2
+                {
+                    Interval { low: 1, high: 1 }
+                } else if self.high < other.low || other.high < self.low {
+                    Interval { low: 0, high: 0 }
+                } else {
+                    Interval { low: 0, high: 1 }
                 }
-            } else if self.high < other.low || other.high < self.low {
-                Interval {
-                    low: 0,
-                    high: 0,
+            }),
+            NE => Some({
+                if let (Some(cons1), Some(cons2)) = (self.try_constant(), other.try_constant())
+                    && cons1 == cons2
+                {
+                    Interval { low: 0, high: 0 }
+                } else if self.high < other.low || other.high < self.low {
+                    Interval { low: 1, high: 1 }
+                } else {
+                    Interval { low: 0, high: 1 }
                 }
-            } else {
-                Interval {
-                    low: 0,
-                    high: 1,
+            }),
+            LT => Some({
+                if self.high < other.low {
+                    Interval { low: 1, high: 1 }
+                } else if self.low >= other.high {
+                    Interval { low: 0, high: 0 }
+                } else {
+                    Interval { low: 0, high: 1 }
                 }
-            },
-            NE => if let (Some(cons1), Some(cons2)) = (self.try_constant(), other.try_constant()) && cons1 == cons2 {
-                Interval {
-                    low: 0,
-                    high: 0,
+            }),
+            LE => Some({
+                if self.high <= other.low {
+                    Interval { low: 1, high: 1 }
+                } else if self.low > other.high {
+                    Interval { low: 0, high: 0 }
+                } else {
+                    Interval { low: 0, high: 1 }
                 }
-            } else if self.high < other.low || other.high < self.low {
-                Interval {
-                    low: 1,
-                    high: 1,
+            }),
+            GT => Some({
+                if self.low > other.high {
+                    Interval { low: 1, high: 1 }
+                } else if self.high <= other.low {
+                    Interval { low: 0, high: 0 }
+                } else {
+                    Interval { low: 0, high: 1 }
                 }
-            } else {
-                Interval {
-                    low: 0,
-                    high: 1,
+            }),
+            GE => Some({
+                if self.low >= other.high {
+                    Interval { low: 1, high: 1 }
+                } else if self.high < other.low {
+                    Interval { low: 0, high: 0 }
+                } else {
+                    Interval { low: 0, high: 1 }
                 }
-            },
-            LT => if self.high < other.low {
-                Interval {
-                    low: 1,
-                    high: 1,
-                }
-            } else if self.low >= other.high {
-                Interval {
-                    low: 0,
-                    high: 0,
-                }
-            } else {
-                Interval {
-                    low: 0,
-                    high: 1,
-                }
-            },
-            LE => if self.high <= other.low {
-                Interval {
-                    low: 1,
-                    high: 1,
-                }
-            } else if self.low > other.high {
-                Interval {
-                    low: 0,
-                    high: 0,
-                }
-            } else {
-                Interval {
-                    low: 0,
-                    high: 1,
-                }
-            },
-            GT => if self.low > other.high {
-                Interval {
-                    low: 1,
-                    high: 1,
-                }
-            } else if self.high <= other.low {
-                Interval {
-                    low: 0,
-                    high: 0,
-                }
-            } else {
-                Interval {
-                    low: 0,
-                    high: 1,
-                }
-            },
-            GE => if self.low >= other.high {
-                Interval {
-                    low: 1,
-                    high: 1,
-                }
-            } else if self.high < other.low {
-                Interval {
-                    low: 0,
-                    high: 0,
-                }
-            } else {
-                Interval {
-                    low: 0,
-                    high: 1,
-                }
-            },
-        }
+            }),
+        })()
+        .unwrap_or(Interval::bottom())
     }
 }
