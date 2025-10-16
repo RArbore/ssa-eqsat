@@ -115,6 +115,21 @@ impl Interval {
         }
     }
 
+    pub fn widen(&self, new: &Interval) -> Interval {
+        Interval {
+            low: if self.low > new.low {
+                i32::MIN
+            } else {
+                self.low
+            },
+            high: if self.high < new.high {
+                i32::MAX
+            } else {
+                self.high
+            }
+        }
+    }
+
     pub fn try_constant(&self) -> Option<i32> {
         if self.low == self.high {
             Some(self.low)

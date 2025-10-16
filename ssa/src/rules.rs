@@ -311,7 +311,7 @@ impl EGraph {
 
     pub fn optimistic_analysis(&mut self) {
         self.analyses = Analyses::new();
-        for _ in 0..100 {
+        for _ in 0..92 {
             let old_analyses = replace(&mut self.analyses, Analyses::new());
 
             self.analysis1();
@@ -321,6 +321,44 @@ impl EGraph {
             self.analysis5(&old_analyses);
             self.analysis6(&old_analyses);
             self.analysis7(&old_analyses);
+
+            self.widen(&old_analyses);
+        }
+    }
+
+    fn widen(&mut self, old_analyses: &Analyses) {
+        let widening_points: BTreeSet<BlockId> = self
+            .cfg
+            .iter()
+            .filter_map(|(block, preds)| {
+                if preds.iter().any(|(pred, _)| {
+                    pred >= block
+                        && old_analyses
+                            .edge_reachability
+                            .rows(false)
+                            .any(|(row, _)| row[0] == *pred && row[1] == *block)
+                }) {
+                    Some(*block)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let widening_eclasses: BTreeSet<Value> = self.phi.rows(false).filter_map(|(row, _)| if widening_points.contains(&row[0]) { Some(row[3]) } else { None }).collect();
+
+        let mut widen = |this_iter: Value, last_iter: Value| -> Value {
+            self.interval_interner
+                .intern(
+                    self.interval_interner
+                        .get(last_iter.into())
+                        .widen(&self.interval_interner.get(this_iter.into())),
+                )
+                .into()
+        };
+        for (row, _) in old_analyses.interval.rows(false) {
+            if widening_eclasses.contains(&row[0]) {
+                self.analyses.interval.insert(row, &mut widen);
+            }
         }
     }
 
