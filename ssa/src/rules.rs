@@ -1,7 +1,8 @@
 use core::mem::replace;
+use std::collections::BTreeSet;
 
 use db::table::Value;
-use imp::term::{BinaryOp, UnaryOp};
+use imp::term::{BinaryOp, BlockId, UnaryOp};
 
 use crate::egraph::{Analyses, EGraph};
 use crate::lattices::Interval;
@@ -217,13 +218,13 @@ impl EGraph {
         for (phi, _) in self.phi.rows(false) {
             let preds = &self.cfg[&phi[0]];
             let lhs_reachable = old_analyses
-                .reachability
+                .edge_reachability
                 .rows(false)
-                .any(|(row, _)| row[0] == preds[0].0);
+                .any(|(row, _)| row[0] == preds[0].0 && row[1] == phi[0]);
             let rhs_reachable = old_analyses
-                .reachability
+                .edge_reachability
                 .rows(false)
-                .any(|(row, _)| row[0] == preds[1].0);
+                .any(|(row, _)| row[0] == preds[1].0 && row[1] == phi[0]);
 
             let mut lhs = None;
             let mut rhs = None;
@@ -268,13 +269,30 @@ impl EGraph {
     }
 
     fn analysis6(&mut self, old_analyses: &Analyses) {
-        // Reachability
+        // Block reachability
         let mut merge = |_, _| panic!();
-        self.analyses.reachability.insert(&[0], &mut merge);
+        self.analyses.block_reachability.insert(&[0], &mut merge);
         for (block, preds) in &self.cfg {
-            if preds.iter().any(|(pred, cond)| {
+            if preds.iter().any(|(pred, _)| {
                 old_analyses
-                    .reachability
+                    .edge_reachability
+                    .rows(false)
+                    .any(|(row, _)| row[0] == *pred && row[1] == *block)
+            }) {
+                self.analyses
+                    .block_reachability
+                    .insert(&[*block], &mut merge);
+            }
+        }
+    }
+
+    fn analysis7(&mut self, old_analyses: &Analyses) {
+        // Edge reachability
+        let mut merge = |_, _| panic!();
+        for (block, preds) in &self.cfg {
+            for (pred, cond) in preds {
+                if old_analyses
+                    .block_reachability
                     .rows(false)
                     .any(|(row, _)| row[0] == *pred)
                     && old_analyses.interval.rows(false).any(|(row, _)| {
@@ -282,8 +300,11 @@ impl EGraph {
                             && self.interval_interner.get(row[1].into())
                                 != Interval { low: 0, high: 0 }
                     })
-            }) {
-                self.analyses.reachability.insert(&[*block], &mut merge);
+                {
+                    self.analyses
+                        .edge_reachability
+                        .insert(&[*pred, *block], &mut merge);
+                }
             }
         }
     }
@@ -292,12 +313,14 @@ impl EGraph {
         self.analyses = Analyses::new();
         for _ in 0..100 {
             let old_analyses = replace(&mut self.analyses, Analyses::new());
+
             self.analysis1();
             self.analysis2();
             self.analysis3(&old_analyses);
             self.analysis4(&old_analyses);
             self.analysis5(&old_analyses);
             self.analysis6(&old_analyses);
+            self.analysis7(&old_analyses);
         }
     }
 

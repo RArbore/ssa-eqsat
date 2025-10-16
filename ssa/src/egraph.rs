@@ -10,7 +10,8 @@ use crate::lattices::{Interner, Interval};
 pub(crate) type CFG = BTreeMap<BlockId, Vec<(BlockId, ClassId)>>;
 
 pub(crate) struct Analyses {
-    pub(crate) reachability: Table,
+    pub(crate) block_reachability: Table,
+    pub(crate) edge_reachability: Table,
     pub(crate) interval: Table,
 }
 
@@ -32,7 +33,8 @@ pub struct EGraph {
 impl Analyses {
     pub(crate) fn new() -> Self {
         Analyses {
-            reachability: Table::new(1, false),
+            block_reachability: Table::new(1, false),
+            edge_reachability: Table::new(2, false),
             interval: Table::new(1, true),
         }
     }
