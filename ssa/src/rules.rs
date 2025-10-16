@@ -268,6 +268,7 @@ impl EGraph {
     }
 
     fn analysis6(&mut self, old_analyses: &Analyses) {
+        // Reachability
         let mut merge = |_, _| panic!();
         self.analyses.reachability.insert(&[0], &mut merge);
         for (block, preds) in &self.cfg {
@@ -288,6 +289,7 @@ impl EGraph {
     }
 
     pub fn optimistic_analysis(&mut self) {
+        self.analyses = Analyses::new();
         for _ in 0..100 {
             let old_analyses = replace(&mut self.analyses, Analyses::new());
             self.analysis1();
