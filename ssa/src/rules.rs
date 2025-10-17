@@ -48,30 +48,6 @@ impl EGraph {
     }
 
     fn rewrite3(&mut self) {
-        // (x + 1) - 1 => x
-        let mut matches = vec![];
-        for (sub, _) in self.binary.rows(false) {
-            if sub[0] == BinaryOp::Sub as Value {
-                for (one, _) in self.constant.rows(false) {
-                    if one[0] == 1 && one[1] == sub[2] {
-                        for (add, _) in self.binary.rows(false) {
-                            if add[0] == BinaryOp::Add as Value {
-                                if add[3] == sub[1] && one[1] == add[2] {
-                                    matches.push((add[1], sub[3]));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        for m in matches {
-            self.uf.merge(m.0.into(), m.1.into());
-        }
-    }
-
-    fn rewrite4(&mut self) {
         // [z, z] => z
         let mut matches = vec![];
         for (row, _) in self.analyses.interval.rows(false) {
@@ -84,6 +60,16 @@ impl EGraph {
         for m in matches {
             let row = [m.0 as Value, m.1];
             self.constant.insert(&row, &mut merge);
+        }
+    }
+
+    fn rewrite4(&mut self) {
+        // x = y + 0 => x = y
+        for id in 0..self.analyses.offset.num_class_ids() {
+            let (root, offset) = self.analyses.offset.find(id.into());
+            if offset == 0 {
+                self.uf.merge(id.into(), root);
+            }
         }
     }
 
@@ -309,10 +295,48 @@ impl EGraph {
         }
     }
 
+    fn analysis8(&mut self, old_analyses: &Analyses) {
+        // x = y => x = y + 0
+        assert_eq!(self.uf.num_class_ids(), old_analyses.offset.num_class_ids());
+
+        for id in 0..self.uf.num_class_ids() {
+            self.analyses.offset.merge(id.into(), self.uf.find(id.into()), 0);
+        }
+    }
+
+    fn analysis9(&mut self, old_analyses: &Analyses) {
+        // x = y + [c, c] => x = y + c
+        // x = [c, c] + y => x = y + c
+        // x = y - [c, c] => x = y + -c
+        let mut matches = vec![];
+        for (binary, _) in self.binary.rows(false) {
+            if binary[0] == BinaryOp::Add as Value {
+                for (interval, _) in old_analyses.interval.rows(false) {
+                    if interval[0] == binary[1] && let Some(cons) = self.interval_interner.get(interval[1].into()).try_constant() {
+                        matches.push((binary[3], binary[2], cons));
+                    }
+                    if interval[0] == binary[2] && let Some(cons) = self.interval_interner.get(interval[1].into()).try_constant() {
+                        matches.push((binary[3], binary[1], cons));
+                    }
+                }
+            } else if binary[0] == BinaryOp::Sub as Value {
+                for (interval, _) in old_analyses.interval.rows(false) {
+                    if interval[0] == binary[2] && let Some(cons) = self.interval_interner.get(interval[1].into()).try_constant() {
+                        matches.push((binary[3], binary[1], -cons));
+                    }
+                }
+            }
+        }
+
+        for m in matches {
+            self.analyses.offset.merge(m.0.into(), m.1.into(), m.2);
+        }
+    }
+
     pub fn optimistic_analysis(&mut self) {
-        self.analyses = Analyses::new();
+        self.analyses = Analyses::new(self.uf.num_class_ids());
         for _ in 0..92 {
-            let old_analyses = replace(&mut self.analyses, Analyses::new());
+            let old_analyses = replace(&mut self.analyses, Analyses::new(self.uf.num_class_ids()));
 
             self.analysis1();
             self.analysis2();
@@ -321,6 +345,8 @@ impl EGraph {
             self.analysis5(&old_analyses);
             self.analysis6(&old_analyses);
             self.analysis7(&old_analyses);
+            self.analysis8(&old_analyses);
+            self.analysis9(&old_analyses);
 
             self.widen(&old_analyses);
         }

@@ -15,3 +15,12 @@ fn inc_dec() {
 	ysd = ys - 1;
 	return xsd == ysd;
 }
+
+fn add_sub(x) {
+	while 1 {
+		y = x + 7;
+		z = y - 3;
+		x = z - 4;
+	}
+	return x;
+}

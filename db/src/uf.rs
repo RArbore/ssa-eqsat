@@ -105,6 +105,16 @@ impl<G: Group> LabelledUnionFind<G> {
         }
     }
 
+    pub fn query(&self, a: ClassId, b: ClassId) -> Option<G> {
+        let (a_root, a_action) = self.find(a);
+        let (b_root, b_action) = self.find(b);
+        if a_root == b_root {
+            Some(a_action.compose(&b_action.inverse()))
+        } else {
+            None
+        }
+    }
+
     #[inline]
     fn parent(&self, id: ClassId) -> (ClassId, G) {
         self.vec.borrow()[id.0 as usize].clone()

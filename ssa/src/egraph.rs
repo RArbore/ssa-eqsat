@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io::{Result, Write};
 
 use db::table::{Table, Value};
-use db::uf::{ClassId, UnionFind};
+use db::uf::{ClassId, LabelledUnionFind, UnionFind};
 use imp::term::{BinaryOp, BlockId, SSA, Term, UnaryOp};
 
 use crate::lattices::{Interner, Interval};
@@ -13,6 +13,7 @@ pub(crate) struct Analyses {
     pub(crate) block_reachability: Table,
     pub(crate) edge_reachability: Table,
     pub(crate) interval: Table,
+    pub(crate) offset: LabelledUnionFind<i32>,
 }
 
 pub struct EGraph {
@@ -25,30 +26,31 @@ pub struct EGraph {
     pub(crate) analyses: Analyses,
 
     pub(crate) cfg: CFG,
-
     pub(crate) uf: UnionFind,
     pub(crate) interval_interner: Interner<Interval>,
 }
 
 impl Analyses {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(num_classes: u32) -> Self {
         Analyses {
             block_reachability: Table::new(1, false),
             edge_reachability: Table::new(2, false),
             interval: Table::new(1, true),
+            offset: LabelledUnionFind::new_all_not_equals(num_classes),
         }
     }
 }
 
 impl EGraph {
     pub fn from_ssa(ssa: &SSA) -> EGraph {
+        let num_classes = ssa.terms().count() as u32;
         let mut egraph = EGraph {
             constant: Table::new(1, true),
             param: Table::new(1, true),
             phi: Table::new(3, true),
             unary: Table::new(2, true),
             binary: Table::new(3, true),
-            analyses: Analyses::new(),
+            analyses: Analyses::new(num_classes),
             cfg: ssa
                 .cfg
                 .iter()
@@ -62,7 +64,7 @@ impl EGraph {
                     )
                 })
                 .collect(),
-            uf: UnionFind::new_all_not_equals(ssa.terms().count() as u32),
+            uf: UnionFind::new_all_not_equals(num_classes),
             interval_interner: Interner::new(),
         };
         let mut merge =
