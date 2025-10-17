@@ -145,7 +145,9 @@ impl EGraph {
             }
             writeln!(w, "}}")?;
             if let Some(interval) = eclass.1 {
-                writeln!(w, "label=\"[{}, {}]\";", interval.low, interval.high)?;
+                writeln!(w, "label=\"{}: [{}, {}]\";", eclass_idx, interval.low, interval.high)?;
+            } else {
+                writeln!(w, "label=\"{}\";", eclass_idx)?;
             }
             writeln!(w, "cluster=true;")?;
             writeln!(w, "}}")?;

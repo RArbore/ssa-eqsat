@@ -1,6 +1,6 @@
 fn gvn() {
-	x = 1;
-	y = 1;
+	x = 5;
+	y = 5;
 	while x < 10 {
 		x = x + 1;
 		y = y + 1;
