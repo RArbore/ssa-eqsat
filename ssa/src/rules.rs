@@ -238,9 +238,9 @@ impl EGraph {
     }
 
     fn analysis7(&mut self, old_analyses: &Analyses) {
-        // phi(x, y), x = [a, b], y != [_, _] => [a, b]
-        // phi(x, y), x != [_, _], y = [a, b] => [a, b]
-        // phi(x, y), x = [a, b], y = [c, d] => [a, b] \cap [c, d]
+        // phi(_, x, y), x = [a, b], y != [_, _] => [a, b]
+        // phi(_, x, y), x != [_, _], y = [a, b] => [a, b]
+        // phi(_, x, y), x = [a, b], y = [c, d] => [a, b] \cap [c, d]
         let mut matches = vec![];
         for (phi, _) in self.phi.rows(false) {
             let preds = &self.cfg[&phi[0]];
@@ -385,6 +385,54 @@ impl EGraph {
         }
     }
 
+    fn analysis11(&mut self, old_analyses: &Analyses) {
+        // a = phi(l, x, y), b = phi(l, z, w), x = z + c, y = w + c => a = b + c
+        // a = phi(l, x, unreachable), b = phi(l, y, unreachable), x = y + c, a = b + c
+        // a = phi(l, unreachable, x), b = phi(l, unreachable, y), x = y + c, a = b + c
+        let mut matches = vec![];
+        for (phi1, _) in self.phi.rows(false) {
+            for (phi2, _) in self.phi.rows(false) {
+                if phi1[0] == phi2[0] {
+                    let block = phi1[0];
+                    let lhs_pred = self.cfg[&block][0].0;
+                    let rhs_pred = self.cfg[&block][1].0;
+                    let lhs_reachable = old_analyses
+                        .edge_reachability
+                        .rows(false)
+                        .any(|(row, _)| (row[0], row[1]) == (lhs_pred, block));
+                    let rhs_reachable = old_analyses
+                        .edge_reachability
+                        .rows(false)
+                        .any(|(row, _)| (row[0], row[1]) == (rhs_pred, block));
+                    if lhs_reachable && rhs_reachable {
+                        let lhs_cons = old_analyses.offset.query(phi1[1].into(), phi2[1].into());
+                        let rhs_cons = old_analyses.offset.query(phi1[2].into(), phi2[2].into());
+                        if let Some(lhs_cons) = lhs_cons
+                            && let Some(rhs_cons) = rhs_cons
+                            && lhs_cons == rhs_cons
+                        {
+                            matches.push((phi1[3], phi2[3], lhs_cons));
+                        }
+                    } else if lhs_reachable {
+                        let lhs_cons = old_analyses.offset.query(phi1[1].into(), phi2[1].into());
+                        if let Some(lhs_cons) = lhs_cons {
+                            matches.push((phi1[3], phi2[3], lhs_cons));
+                        }
+                    } else if rhs_reachable {
+                        let rhs_cons = old_analyses.offset.query(phi1[2].into(), phi2[2].into());
+                        if let Some(rhs_cons) = rhs_cons {
+                            matches.push((phi1[3], phi2[3], rhs_cons));
+                        }
+                    }
+                }
+            }
+        }
+
+        for m in matches {
+            self.analyses.offset.merge(m.0.into(), m.1.into(), m.2);
+        }
+    }
+
     fn refine1(&mut self) {
         // x = [c1, c1], y = [c2, c2] => x = y + (c1 - c2)
         let mut matches = vec![];
@@ -426,6 +474,7 @@ impl EGraph {
             self.analysis8(&old_analyses);
             self.analysis9(&old_analyses);
             self.analysis10(&old_analyses);
+            self.analysis11(&old_analyses);
 
             self.refine1();
 
