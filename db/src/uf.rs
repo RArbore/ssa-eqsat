@@ -1,4 +1,39 @@
 use core::cell::{Cell, RefCell};
+use core::fmt::Debug;
+
+pub trait Group: Clone + Debug + PartialEq + Eq {
+    fn identity() -> Self;
+    fn compose(&self, other: &Self) -> Self;
+    fn inverse(&self) -> Self;
+}
+
+impl Group for () {
+    fn identity() -> Self {
+        ()
+    }
+
+    fn compose(&self, _: &Self) -> Self {
+        ()
+    }
+
+    fn inverse(&self) -> Self {
+        ()
+    }
+}
+
+impl Group for i32 {
+    fn identity() -> Self {
+        0
+    }
+
+    fn compose(&self, other: &Self) -> Self {
+        self + *other
+    }
+
+    fn inverse(&self) -> Self {
+        -*self
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
@@ -17,12 +52,12 @@ impl From<ClassId> for u32 {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnionFind {
-    vec: RefCell<Vec<ClassId>>,
+pub struct LabelledUnionFind<G: Group> {
+    vec: RefCell<Vec<(ClassId, G)>>,
     num_classes: Cell<u32>,
 }
 
-impl UnionFind {
+impl<G: Group> LabelledUnionFind<G> {
     pub fn new() -> Self {
         Self {
             vec: RefCell::new(Vec::new()),
@@ -32,31 +67,20 @@ impl UnionFind {
 
     pub fn new_all_not_equals(amount: u32) -> Self {
         Self {
-            vec: RefCell::new((0..amount).map(|idx| ClassId(idx)).collect()),
+            vec: RefCell::new(
+                (0..amount)
+                    .map(|idx| (ClassId(idx), G::identity()))
+                    .collect(),
+            ),
             num_classes: Cell::new(amount),
         }
-    }
-
-    pub fn new_all_equals(amount: u32) -> Self {
-        Self {
-            vec: RefCell::new(vec![ClassId(0); amount as usize]),
-            num_classes: Cell::new(1),
-        }
-    }
-
-    pub fn set_all_not_equals(&self) {
-        let mut vec = self.vec.borrow_mut();
-        for idx in 0..vec.len() {
-            vec[idx] = ClassId::from(idx as u32);
-        }
-        self.num_classes.set(vec.len() as u32);
     }
 
     pub fn makeset(&self) -> ClassId {
         let mut vec = self.vec.borrow_mut();
         let len = vec.len();
         let id = ClassId(len.try_into().unwrap());
-        vec.push(id);
+        vec.push((id, G::identity()));
         self.num_classes.set(self.num_classes.get() + 1);
         id
     }
@@ -69,51 +93,103 @@ impl UnionFind {
         self.num_classes.get()
     }
 
-    pub fn find(&self, mut id: ClassId) -> ClassId {
-        while id != self.parent(id) {
-            self.set_parent(id, self.parent(self.parent(id)));
-            id = self.parent(id);
+    pub fn find(&self, id: ClassId) -> (ClassId, G) {
+        let (parent, action) = self.parent(id);
+        if parent != id {
+            let (root, root_action) = self.find(parent);
+            let composed = action.compose(&root_action);
+            self.set_parent(id, (root, composed.clone()));
+            (root, composed)
+        } else {
+            (parent, action)
         }
-        id
     }
 
     #[inline]
-    fn parent(&self, id: ClassId) -> ClassId {
-        self.vec.borrow()[id.0 as usize]
+    fn parent(&self, id: ClassId) -> (ClassId, G) {
+        self.vec.borrow()[id.0 as usize].clone()
     }
 
     #[inline]
-    fn set_parent(&self, id: ClassId, parent: ClassId) {
+    fn set_parent(&self, id: ClassId, parent: (ClassId, G)) {
         self.vec.borrow_mut()[id.0 as usize] = parent;
     }
 
-    pub fn merge(&self, mut x: ClassId, mut y: ClassId) -> ClassId {
-        let mut changed = false;
-        while self.parent(x) != self.parent(y) {
-            if self.parent(x) > self.parent(y) {
-                if x == self.parent(x) {
-                    self.set_parent(x, self.parent(y));
-                    changed = true;
-                    break;
-                }
-                let z = self.parent(x);
-                self.set_parent(x, self.parent(y));
-                x = z;
-            } else {
-                if y == self.parent(y) {
-                    self.set_parent(y, self.parent(x));
-                    changed = true;
-                    break;
-                }
-                let z = self.parent(y);
-                self.set_parent(y, self.parent(x));
-                y = z;
+    pub fn merge(&self, a: ClassId, b: ClassId, action: G) -> ClassId {
+        let (a_root, a_action) = self.find(a);
+        let (b_root, b_action) = self.find(b);
+        if a_root == b_root {
+            let old_action = a_action.compose(&b_action.inverse());
+            if old_action != action {
+                panic!(
+                    "Disagreeing relations in labelled UF: {:?} != {:?}",
+                    old_action, action
+                );
             }
-        }
-        if changed {
+            a_root
+        } else if a_root < b_root {
+            self.set_parent(
+                b_root,
+                (
+                    a_root,
+                    b_action
+                        .inverse()
+                        .compose(&action.inverse())
+                        .compose(&a_action),
+                ),
+            );
             self.num_classes.set(self.num_classes.get() - 1);
+            a_root
+        } else {
+            self.set_parent(
+                a_root,
+                (
+                    b_root,
+                    a_action.inverse().compose(&action).compose(&b_action),
+                ),
+            );
+            self.num_classes.set(self.num_classes.get() - 1);
+            b_root
         }
-        self.parent(x)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnionFind {
+    uf: LabelledUnionFind<()>,
+}
+
+impl UnionFind {
+    pub fn new() -> Self {
+        Self {
+            uf: LabelledUnionFind::new(),
+        }
+    }
+
+    pub fn new_all_not_equals(amount: u32) -> Self {
+        Self {
+            uf: LabelledUnionFind::new_all_not_equals(amount),
+        }
+    }
+
+    pub fn makeset(&self) -> ClassId {
+        self.uf.makeset()
+    }
+
+    pub fn num_class_ids(&self) -> u32 {
+        self.uf.num_class_ids()
+    }
+
+    pub fn num_classes(&self) -> u32 {
+        self.uf.num_classes()
+    }
+
+    pub fn find(&self, id: ClassId) -> ClassId {
+        self.uf.find(id).0
+    }
+
+    pub fn merge(&self, a: ClassId, b: ClassId) -> ClassId {
+        self.uf.merge(a, b, ())
     }
 }
 
