@@ -48,6 +48,79 @@ impl EGraph {
     }
 
     fn rewrite3(&mut self) {
+        // phi(x, x) => x
+        let mut matches = vec![];
+        for (phi, _) in self.phi.rows(false) {
+            if phi[1] == phi[2] {
+                matches.push((phi[1], phi[3]));
+            }
+        }
+
+        for m in matches {
+            self.uf.merge(m.0.into(), m.1.into());
+        }
+    }
+
+    fn rewrite4(&mut self) {
+        // x = phi(a, x) => a
+        // x = phi(x, a) => a
+        let mut matches = vec![];
+        for (phi, _) in self.phi.rows(false) {
+            let preds = &self.cfg[&phi[0]];
+            let lhs_reachable = self
+                .analyses
+                .edge_reachability
+                .rows(false)
+                .any(|(row, _)| row[0] == preds[0].0 && row[1] == phi[0]);
+            let rhs_reachable = self
+                .analyses
+                .edge_reachability
+                .rows(false)
+                .any(|(row, _)| row[0] == preds[1].0 && row[1] == phi[0]);
+
+            if phi[2] == phi[3] && lhs_reachable {
+                matches.push((phi[1], phi[3]));
+            }
+            if phi[1] == phi[3] && rhs_reachable {
+                matches.push((phi[2], phi[3]));
+            }
+        }
+
+        for m in matches {
+            self.uf.merge(m.0.into(), m.1.into());
+        }
+    }
+
+    fn rewrite5(&mut self) {
+        // phi(x, unreachable) => x
+        // phi(unreachable, x) => x
+        let mut matches = vec![];
+        for (phi, _) in self.phi.rows(false) {
+            let preds = &self.cfg[&phi[0]];
+            let lhs_reachable = self
+                .analyses
+                .edge_reachability
+                .rows(false)
+                .any(|(row, _)| row[0] == preds[0].0 && row[1] == phi[0]);
+            let rhs_reachable = self
+                .analyses
+                .edge_reachability
+                .rows(false)
+                .any(|(row, _)| row[0] == preds[1].0 && row[1] == phi[0]);
+
+            if lhs_reachable && !rhs_reachable {
+                matches.push((phi[1], phi[3]));
+            } else if !lhs_reachable && rhs_reachable {
+                matches.push((phi[2], phi[3]));
+            }
+        }
+
+        for m in matches {
+            self.uf.merge(m.0.into(), m.1.into());
+        }
+    }
+
+    fn rewrite6(&mut self) {
         // [z, z] => z
         let mut matches = vec![];
         for (row, _) in self.analyses.interval.rows(false) {
@@ -63,7 +136,7 @@ impl EGraph {
         }
     }
 
-    fn rewrite4(&mut self) {
+    fn rewrite7(&mut self) {
         // x = y + 0 => x = y
         for id in 0..self.analyses.offset.num_class_ids() {
             let (root, offset) = self.analyses.offset.find(id.into());
@@ -461,7 +534,7 @@ impl EGraph {
 
     pub fn optimistic_analysis(&mut self) {
         self.analyses = Analyses::new(self.uf.num_class_ids());
-        for _ in 0..20 {
+        for _ in 0..100 {
             let old_analyses = replace(&mut self.analyses, Analyses::new(self.uf.num_class_ids()));
 
             self.analysis1(&old_analyses);
@@ -579,6 +652,9 @@ impl EGraph {
             self.rewrite2();
             self.rewrite3();
             self.rewrite4();
+            self.rewrite5();
+            self.rewrite6();
+            self.rewrite7();
 
             let new_num_nodes = self.constant.num_rows()
                 + self.param.num_rows()
