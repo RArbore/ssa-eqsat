@@ -98,7 +98,7 @@ impl EGraph {
     }
 
     pub fn to_dot<W: Write>(&self, w: &mut W) -> Result<()> {
-        let mut eclasses: Vec<(Vec<(String, Vec<Value>)>, Option<Interval>)> =
+        let mut eclasses: Vec<(Vec<(String, Vec<(Value, &str)>)>, Option<Interval>)> =
             vec![(vec![], None); self.uf.num_class_ids() as usize];
 
         for (row, _) in self.constant.rows(false) {
@@ -112,19 +112,35 @@ impl EGraph {
                 .push((format!("#{}", row[0 as usize]), vec![]));
         }
         for (row, _) in self.phi.rows(false) {
-            eclasses[row[3] as usize]
-                .0
-                .push((format!("Φ"), vec![row[1], row[2]]));
+            let preds = &self.cfg[&row[0]];
+            let lhs_reachable = self
+                .analyses
+                .edge_reachability
+                .rows(false)
+                .any(|(reach_row, _)| reach_row[0] == preds[0].0 && reach_row[1] == row[0]);
+            let rhs_reachable = self
+                .analyses
+                .edge_reachability
+                .rows(false)
+                .any(|(reach_row, _)| reach_row[0] == preds[1].0 && reach_row[1] == row[0]);
+            eclasses[row[3] as usize].0.push((
+                format!("Φ"),
+                vec![
+                    (row[1], if lhs_reachable { "solid" } else { "dotted" }),
+                    (row[2], if rhs_reachable { "solid" } else { "dotted" }),
+                ],
+            ));
         }
         for (row, _) in self.unary.rows(false) {
-            eclasses[row[2] as usize]
-                .0
-                .push((format!("{:?}", UnaryOp::n(row[0]).unwrap()), vec![row[1]]));
+            eclasses[row[2] as usize].0.push((
+                format!("{:?}", UnaryOp::n(row[0]).unwrap()),
+                vec![(row[1], "solid")],
+            ));
         }
         for (row, _) in self.binary.rows(false) {
             eclasses[row[3] as usize].0.push((
                 format!("{:?}", BinaryOp::n(row[0]).unwrap()),
-                vec![row[1], row[2]],
+                vec![(row[1], "solid"), (row[2], "solid")],
             ));
         }
 
@@ -145,7 +161,11 @@ impl EGraph {
             }
             writeln!(w, "}}")?;
             if let Some(interval) = eclass.1 {
-                writeln!(w, "label=\"{}: [{}, {}]\";", eclass_idx, interval.low, interval.high)?;
+                writeln!(
+                    w,
+                    "label=\"{}: [{}, {}]\";",
+                    eclass_idx, interval.low, interval.high
+                )?;
             } else {
                 writeln!(w, "label=\"{}\";", eclass_idx)?;
             }
@@ -160,8 +180,8 @@ impl EGraph {
                 for child_eclass in enode.1 {
                     writeln!(
                         w,
-                        "N{}_0:s -> N{}_{} [ltail=E{}];",
-                        child_eclass, eclass_idx, enode_idx, child_eclass
+                        "N{}_0:s -> N{}_{} [ltail=E{}, style=\"{}\"];",
+                        child_eclass.0, eclass_idx, enode_idx, child_eclass.0, child_eclass.1
                     )?;
                 }
             }
