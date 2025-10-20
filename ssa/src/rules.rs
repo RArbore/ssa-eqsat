@@ -460,8 +460,8 @@ impl EGraph {
 
     fn analysis11(&mut self, old_analyses: &Analyses) {
         // a = phi(l, x, y), b = phi(l, z, w), x = z + c, y = w + c => a = b + c
-        // a = phi(l, x, unreachable), b = phi(l, y, unreachable), x = y + c, a = b + c
-        // a = phi(l, unreachable, x), b = phi(l, unreachable, y), x = y + c, a = b + c
+        // a = phi(l, x, y), b = phi(l, z, w), x = z + c, y != _ + _ => a = b + c
+        // a = phi(l, x, y), b = phi(l, z, w), x != _ + _, y = w + c => a = b + c
         let mut matches = vec![];
         for (phi1, _) in self.phi.rows(false) {
             for (phi2, _) in self.phi.rows(false) {

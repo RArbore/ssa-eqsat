@@ -1,5 +1,6 @@
 use core::cell::{Cell, RefCell};
 use core::fmt::Debug;
+use std::collections::BTreeSet;
 
 pub trait Group: Clone + Debug + PartialEq + Eq {
     fn identity() -> Self;
@@ -161,6 +162,82 @@ impl<G: Group> LabelledUnionFind<G> {
             self.num_classes.set(self.num_classes.get() - 1);
             b_root
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OptionalLabelledUnionFind<G: Group> {
+    uf: LabelledUnionFind<G>,
+    some_set: RefCell<BTreeSet<ClassId>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OptionalQueryResult<G: Group> {
+    Related(G),
+    Unrelated,
+    Unknown,
+}
+
+impl<G: Group> OptionalLabelledUnionFind<G> {
+    pub fn new() -> Self {
+        Self {
+            uf: LabelledUnionFind::new(),
+            some_set: RefCell::new(BTreeSet::new()),
+        }
+    }
+
+    pub fn new_all_none(amount: u32) -> Self {
+        Self {
+            uf: LabelledUnionFind::new_all_not_equals(amount),
+            some_set: RefCell::new(BTreeSet::new()),
+        }
+    }
+
+    pub fn makeset(&self) -> ClassId {
+        self.uf.makeset()
+    }
+
+    pub fn num_class_ids(&self) -> u32 {
+        self.uf.num_class_ids()
+    }
+
+    pub fn find(&self, id: ClassId) -> Option<(ClassId, G)> {
+        if self.some_set.borrow().contains(&id) {
+            Some(self.uf.find(id))
+        } else {
+            None
+        }
+    }
+
+    pub fn witness(&self, id: ClassId) {
+        if !self.some_set.borrow().contains(&id) {
+            assert_eq!(self.uf.parent(id), (id, G::identity()));
+        }
+        self.some_set.borrow_mut().insert(id);
+    }
+
+    pub fn find_or_witness(&self, id: ClassId) -> (ClassId, G) {
+        self.find(id).unwrap_or_else(|| {
+            self.witness(id);
+            (id, G::identity())
+        })
+    }
+
+    pub fn query(&self, a: ClassId, b: ClassId) -> OptionalQueryResult<G> {
+        if self.some_set.borrow().contains(&a) && self.some_set.borrow().contains(&b) {
+            match self.uf.query(a, b) {
+                Some(g) => OptionalQueryResult::Related(g),
+                None => OptionalQueryResult::Unrelated,
+            }
+        } else {
+            OptionalQueryResult::Unknown
+        }
+    }
+
+    pub fn merge(&self, a: ClassId, b: ClassId, action: G) -> ClassId {
+        self.witness(a);
+        self.witness(b);
+        self.uf.merge(a, b, action)
     }
 }
 
