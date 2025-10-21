@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io::{Result, Write};
 
 use db::table::{Table, Value};
-use db::uf::{ClassId, LabelledUnionFind, UnionFind};
+use db::uf::{ClassId, OptionalLabelledUnionFind, UnionFind};
 use imp::term::{BinaryOp, BlockId, SSA, Term, UnaryOp};
 
 use crate::lattices::{Interner, Interval};
@@ -13,7 +13,7 @@ pub(crate) struct Analyses {
     pub(crate) block_reachability: Table,
     pub(crate) edge_reachability: Table,
     pub(crate) interval: Table,
-    pub(crate) offset: LabelledUnionFind<i32>,
+    pub(crate) offset: OptionalLabelledUnionFind<i32>,
 }
 
 pub struct EGraph {
@@ -36,7 +36,7 @@ impl Analyses {
             block_reachability: Table::new(1, false),
             edge_reachability: Table::new(2, false),
             interval: Table::new(1, true),
-            offset: LabelledUnionFind::new_all_not_equals(num_classes),
+            offset: OptionalLabelledUnionFind::new_all_none(num_classes),
         }
     }
 }

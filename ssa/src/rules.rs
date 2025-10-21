@@ -2,6 +2,7 @@ use core::mem::replace;
 use std::collections::BTreeSet;
 
 use db::table::Value;
+use db::uf::OptionalQueryResult;
 use imp::term::{BinaryOp, BlockId, UnaryOp};
 
 use crate::egraph::{Analyses, EGraph};
@@ -139,8 +140,9 @@ impl EGraph {
     fn rewrite7(&mut self) {
         // x = y + 0 => x = y
         for id in 0..self.analyses.offset.num_class_ids() {
-            let (root, offset) = self.analyses.offset.find(id.into());
-            if offset == 0 {
+            if let Some((root, offset)) = self.analyses.offset.find(id.into())
+                && offset == 0
+            {
                 self.uf.merge(id.into(), root);
             }
         }
@@ -412,7 +414,18 @@ impl EGraph {
         }
     }
 
-    fn analysis9(&mut self, old_analyses: &Analyses) {
+    fn analysis9(&mut self) {
+        // Constants are always witnessed
+        // Parameters are always witnessed
+        for (row, _) in self.constant.rows(false) {
+            self.analyses.offset.witness(row[1].into());
+        }
+        for (row, _) in self.param.rows(false) {
+            self.analyses.offset.witness(row[1].into());
+        }
+    }
+
+    fn analysis10(&mut self, old_analyses: &Analyses) {
         // x = <>(y), z = <>(w), y = w + 0 => x = z + 0
         let mut matches = vec![];
         for (unary1, _) in self.unary.rows(false) {
@@ -421,7 +434,7 @@ impl EGraph {
                     && old_analyses
                         .offset
                         .query(unary1[1].into(), unary2[1].into())
-                        == Some(0)
+                        == OptionalQueryResult::Related(0)
                 {
                     matches.push((unary1[2], unary2[2]));
                 }
@@ -433,7 +446,7 @@ impl EGraph {
         }
     }
 
-    fn analysis10(&mut self, old_analyses: &Analyses) {
+    fn analysis11(&mut self, old_analyses: &Analyses) {
         // x = <>(y, z), a = <>(b, c), y = b + 0, z = c + 0 => x = a + 0
         let mut matches = vec![];
         for (binary1, _) in self.binary.rows(false) {
@@ -442,11 +455,11 @@ impl EGraph {
                     && old_analyses
                         .offset
                         .query(binary1[1].into(), binary2[1].into())
-                        == Some(0)
+                        == OptionalQueryResult::Related(0)
                     && old_analyses
                         .offset
                         .query(binary1[2].into(), binary2[2].into())
-                        == Some(0)
+                        == OptionalQueryResult::Related(0)
                 {
                     matches.push((binary1[3], binary2[3]));
                 }
@@ -458,7 +471,7 @@ impl EGraph {
         }
     }
 
-    fn analysis11(&mut self, old_analyses: &Analyses) {
+    fn analysis12(&mut self, old_analyses: &Analyses) {
         // a = phi(l, x, y), b = phi(l, z, w), x = z + c, y = w + c => a = b + c
         // a = phi(l, x, y), b = phi(l, z, w), x = z + c, y != _ + _ => a = b + c
         // a = phi(l, x, y), b = phi(l, z, w), x != _ + _, y = w + c => a = b + c
@@ -466,43 +479,59 @@ impl EGraph {
         for (phi1, _) in self.phi.rows(false) {
             for (phi2, _) in self.phi.rows(false) {
                 if phi1[0] == phi2[0] {
-                    let block = phi1[0];
-                    let lhs_pred = self.cfg[&block][0].0;
-                    let rhs_pred = self.cfg[&block][1].0;
+                    let preds = &self.cfg[&phi1[0]];
                     let lhs_reachable = old_analyses
                         .edge_reachability
                         .rows(false)
-                        .any(|(row, _)| (row[0], row[1]) == (lhs_pred, block));
+                        .any(|(row, _)| row[0] == preds[0].0 && row[1] == phi1[0]);
                     let rhs_reachable = old_analyses
                         .edge_reachability
                         .rows(false)
-                        .any(|(row, _)| (row[0], row[1]) == (rhs_pred, block));
-                    if lhs_reachable && rhs_reachable {
-                        let lhs_cons = old_analyses.offset.query(phi1[1].into(), phi2[1].into());
-                        let rhs_cons = old_analyses.offset.query(phi1[2].into(), phi2[2].into());
-                        if let Some(lhs_cons) = lhs_cons
-                            && let Some(rhs_cons) = rhs_cons
-                            && lhs_cons == rhs_cons
-                        {
-                            matches.push((phi1[3], phi2[3], lhs_cons));
+                        .any(|(row, _)| row[0] == preds[1].0 && row[1] == phi1[0]);
+                    let lhs = if lhs_reachable {
+                        old_analyses.offset.query(phi1[1].into(), phi2[1].into())
+                    } else {
+                        OptionalQueryResult::Unknown
+                    };
+                    let rhs = if rhs_reachable {
+                        old_analyses.offset.query(phi1[2].into(), phi2[2].into())
+                    } else {
+                        OptionalQueryResult::Unknown
+                    };
+                    match (lhs, rhs) {
+                        (OptionalQueryResult::Related(offset), OptionalQueryResult::Unknown)
+                        | (OptionalQueryResult::Unknown, OptionalQueryResult::Related(offset)) => {
+                            matches.push((phi1[3], phi2[3], Some(offset)))
                         }
-                    } else if lhs_reachable {
-                        let lhs_cons = old_analyses.offset.query(phi1[1].into(), phi2[1].into());
-                        if let Some(lhs_cons) = lhs_cons {
-                            matches.push((phi1[3], phi2[3], lhs_cons));
+                        (
+                            OptionalQueryResult::Related(offset1),
+                            OptionalQueryResult::Related(offset2),
+                        ) => matches.push((
+                            phi1[3],
+                            phi2[3],
+                            if offset1 == offset2 {
+                                Some(offset1)
+                            } else {
+                                None
+                            },
+                        )),
+                        (OptionalQueryResult::Unrelated, _)
+                        | (_, OptionalQueryResult::Unrelated) => {
+                            matches.push((phi1[3], phi2[3], None))
                         }
-                    } else if rhs_reachable {
-                        let rhs_cons = old_analyses.offset.query(phi1[2].into(), phi2[2].into());
-                        if let Some(rhs_cons) = rhs_cons {
-                            matches.push((phi1[3], phi2[3], rhs_cons));
-                        }
+                        (OptionalQueryResult::Unknown, OptionalQueryResult::Unknown) => {}
                     }
                 }
             }
         }
 
         for m in matches {
-            self.analyses.offset.merge(m.0.into(), m.1.into(), m.2);
+            if let Some(offset) = m.2 {
+                self.analyses.offset.merge(m.0.into(), m.1.into(), offset);
+            } else {
+                self.analyses.offset.witness(m.0.into());
+                self.analyses.offset.witness(m.1.into());
+            }
         }
     }
 
@@ -545,9 +574,10 @@ impl EGraph {
             self.analysis6(&old_analyses);
             self.analysis7(&old_analyses);
             self.analysis8(&old_analyses);
-            self.analysis9(&old_analyses);
+            self.analysis9();
             self.analysis10(&old_analyses);
             self.analysis11(&old_analyses);
+            self.analysis12(&old_analyses);
 
             self.refine1();
 
