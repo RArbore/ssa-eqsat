@@ -10,45 +10,6 @@ use crate::lattices::Interval;
 
 impl EGraph {
     fn rewrite1(&mut self) {
-        // x + x => 2 * x
-        let mut matches = vec![];
-        for (row, _) in self.binary.rows(false) {
-            if row[0] == BinaryOp::Add as Value && row[1] == row[2] {
-                matches.push((row[1], row[3]))
-            }
-        }
-
-        let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
-        let two = self
-            .constant
-            .insert(&[2, self.uf.makeset().into()], &mut merge)
-            .0[1]
-            .into();
-        for m in matches {
-            let row = [BinaryOp::Mul as Value, two, m.0, m.1];
-            self.binary.insert(&row, &mut merge);
-        }
-    }
-
-    fn rewrite2(&mut self) {
-        // 1 * x => x
-        let mut matches = vec![];
-        for (mul, _) in self.binary.rows(false) {
-            if mul[0] == BinaryOp::Mul as Value {
-                for (one, _) in self.constant.rows(false) {
-                    if one[0] == 1 && one[1] == mul[1] {
-                        matches.push((mul[2], mul[3]));
-                    }
-                }
-            }
-        }
-
-        for m in matches {
-            self.uf.merge(m.0.into(), m.1.into());
-        }
-    }
-
-    fn rewrite3(&mut self) {
         // phi(x, x) => x
         let mut matches = vec![];
         for (phi, _) in self.phi.rows(false) {
@@ -62,7 +23,7 @@ impl EGraph {
         }
     }
 
-    fn rewrite4(&mut self) {
+    fn rewrite2(&mut self) {
         // x = phi(a, x) => a
         // x = phi(x, a) => a
         let mut matches = vec![];
@@ -92,7 +53,7 @@ impl EGraph {
         }
     }
 
-    fn rewrite5(&mut self) {
+    fn rewrite3(&mut self) {
         // phi(x, unreachable) => x
         // phi(unreachable, x) => x
         let mut matches = vec![];
@@ -121,7 +82,7 @@ impl EGraph {
         }
     }
 
-    fn rewrite6(&mut self) {
+    fn rewrite4(&mut self) {
         // [z, z] => z
         let mut matches = vec![];
         for (row, _) in self.analyses.interval.rows(false) {
@@ -137,7 +98,7 @@ impl EGraph {
         }
     }
 
-    fn rewrite7(&mut self) {
+    fn rewrite5(&mut self) {
         // x = y + 0 => x = y
         for id in 0..self.analyses.offset.num_class_ids() {
             if let Some((root, offset)) = self.analyses.offset.find(id.into())
@@ -145,6 +106,65 @@ impl EGraph {
             {
                 self.uf.merge(id.into(), root);
             }
+        }
+    }
+
+    fn rewrite6(&mut self) {
+        // x + x => 2 * x
+        let mut matches = vec![];
+        for (row, _) in self.binary.rows(false) {
+            if row[0] == BinaryOp::Add as Value && row[1] == row[2] {
+                matches.push((row[1], row[3]))
+            }
+        }
+
+        let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
+        let two = self
+            .constant
+            .insert(&[2, self.uf.makeset().into()], &mut merge)
+            .0[1]
+            .into();
+        for m in matches {
+            let row = [BinaryOp::Mul as Value, two, m.0, m.1];
+            self.binary.insert(&row, &mut merge);
+        }
+    }
+
+    fn rewrite7(&mut self) {
+        // 2 * x => x + x
+        let mut matches = vec![];
+        for (mul, _) in self.binary.rows(false) {
+            if mul[0] == BinaryOp::Mul as Value {
+                for (two, _) in self.constant.rows(false) {
+                    if two[0] == 2 && two[1] == mul[1] {
+                        matches.push((mul[2], mul[3]));
+                    }
+                }
+            }
+        }
+
+        let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
+        for m in matches {
+            let row = [BinaryOp::Add as Value, m.0, m.0, m.1];
+            self.binary.insert(&row, &mut merge);
+        }
+    }
+
+    fn rewrite8(&mut self) {
+        // 1 * x => x
+        let mut matches = vec![];
+        for (mul, _) in self.binary.rows(false) {
+            if mul[0] == BinaryOp::Mul as Value {
+                for (one, _) in self.constant.rows(false) {
+                    if one[0] == 1 && one[1] == mul[1] {
+                        matches.push((mul[2], mul[3]));
+                    }
+                }
+            }
+        }
+
+        for m in matches {
+            self.uf.merge(m.0.into(), m.1.into());
         }
     }
 
@@ -689,6 +709,7 @@ impl EGraph {
             self.rewrite5();
             self.rewrite6();
             self.rewrite7();
+            self.rewrite8();
 
             let new_num_nodes = self.constant.num_rows()
                 + self.param.num_rows()
