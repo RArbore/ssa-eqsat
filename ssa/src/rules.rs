@@ -1,8 +1,8 @@
 use core::mem::replace;
 use std::collections::BTreeSet;
 
-use db::table::Value;
-use db::uf::OptionalQueryResult;
+use ds::table::Value;
+use ds::uf::OptionalQueryResult;
 use imp::term::{BinaryOp, BlockId, UnaryOp};
 
 use crate::egraph::{Analyses, EGraph};
@@ -655,7 +655,7 @@ impl EGraph {
         }
     }
 
-    pub fn rebuild(&mut self) {
+    pub fn rebuild(&mut self) -> bool {
         let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
         let mut zero_canon = |row: &[Value], dst: &mut Vec<Value>| {
             let root = self.uf.find(row[1].into()).into();
@@ -681,6 +681,8 @@ impl EGraph {
             dst.push(root);
             lhs != row[1] || rhs != row[2] || root != row[3]
         };
+
+        let mut ever_changed = false;
         loop {
             let mut changed = false;
             changed = self.constant.rebuild(&mut merge, &mut zero_canon) || changed;
@@ -689,12 +691,15 @@ impl EGraph {
             changed = self.unary.rebuild(&mut merge, &mut one_canon) || changed;
             changed = self.binary.rebuild(&mut merge, &mut two_canon) || changed;
             if !changed {
-                break;
+                break ever_changed;
+            } else {
+                ever_changed = true;
             }
         }
     }
 
-    pub fn saturate_rewrites(&mut self) {
+    pub fn saturate_rewrites(&mut self) -> bool {
+        let mut ever_changed = self.rebuild();
         let mut num_nodes = self.constant.num_rows()
             + self.param.num_rows()
             + self.phi.num_rows()
@@ -718,13 +723,24 @@ impl EGraph {
                 + self.binary.num_rows();
             let new_num_classes = self.uf.num_classes();
             if new_num_nodes != num_nodes || new_num_classes != num_classes {
+                ever_changed = true;
                 num_nodes = new_num_nodes;
-                num_classes = new_num_classes
+                num_classes = new_num_classes;
             } else {
                 break;
             }
 
             self.rebuild();
+        }
+        ever_changed
+    }
+
+    pub fn outer_fixpoint(&mut self) {
+        loop {
+            self.optimistic_analysis();
+            if !self.saturate_rewrites() {
+                break;
+            }
         }
     }
 }

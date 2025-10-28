@@ -30,8 +30,7 @@ pub fn main() -> Result<()> {
         let mut egraph = EGraph::from_ssa(&terms);
 
         xdot(&egraph)?;
-        egraph.optimistic_analysis();
-        egraph.saturate_rewrites();
+        egraph.outer_fixpoint();
         xdot(&egraph)?;
     }
 

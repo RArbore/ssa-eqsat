@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::io::{Result, Write};
 
-use db::table::{Table, Value};
-use db::uf::{ClassId, OptionalLabelledUnionFind, UnionFind};
+use ds::table::{Table, Value};
+use ds::uf::{ClassId, OptionalLabelledUnionFind, UnionFind};
 use imp::term::{BinaryOp, BlockId, SSA, Term, UnaryOp};
 
 use crate::lattices::{Interner, Interval};

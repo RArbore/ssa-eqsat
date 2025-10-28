@@ -14,5 +14,5 @@ path = "src/bin/cli.rs"
 [dependencies]
 tempfile = "*"
 
-db = { path = "../db" }
+ds = { path = "../ds" }
 imp = { path = "../imp" }
