@@ -134,7 +134,7 @@ impl Table {
         }
     }
 
-    pub fn get<'a, 'b>(&'a self, determinant: &'b [Value]) -> Option<&'a [Value]> {
+    pub fn get<'a, 'b>(&'a self, determinant: &'b [Value]) -> Option<Option<Value>> {
         let num_determinant = self.num_determinant();
         assert_eq!(determinant.len(), num_determinant);
         let hash = hash(determinant);
@@ -142,7 +142,11 @@ impl Table {
             te.hash == hash && &self.rows.get_row(te.row)[0..num_determinant] == determinant
         });
         if let Some(te) = te {
-            Some(&self.rows.get_row(te.row)[num_determinant..])
+            if self.has_dependent() {
+                Some(Some(self.rows.get_row(te.row)[num_determinant]))
+            } else {
+                Some(None)
+            }
         } else {
             None
         }
@@ -169,6 +173,12 @@ impl Table {
             row: if delta { self.delta_marker } else { 0 },
             deleted_iter: self.deleted_rows.iter().peekable(),
         }
+    }
+
+    pub fn split_rows(&self, delta: bool) -> impl Iterator<Item = (&[Value], Value, RowId)> + '_ {
+        assert!(self.has_dependent());
+        self.rows(delta)
+            .map(|(row, id)| (&row[0..row.len() - 1], row[row.len() - 1], id))
     }
 
     pub fn num_rows(&self) -> RowId {

@@ -563,7 +563,7 @@ impl EGraph {
 
     pub fn optimistic_analysis(&mut self) {
         self.analyses = Analyses::new(self.uf.num_class_ids());
-        for _ in 0..100 {
+        loop {
             let old_analyses = replace(&mut self.analyses, Analyses::new(self.uf.num_class_ids()));
 
             self.analysis1(&old_analyses);
@@ -582,6 +582,10 @@ impl EGraph {
             self.refine1();
 
             self.widen(&old_analyses);
+
+            if !old_analyses.changed(&self.analyses) {
+                break;
+            }
         }
     }
 

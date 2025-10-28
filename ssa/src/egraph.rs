@@ -39,6 +39,29 @@ impl Analyses {
             offset: OptionalLabelledUnionFind::new_all_none(num_classes),
         }
     }
+
+    pub(crate) fn changed(&self, other: &Self) -> bool {
+        let changed_table_set = |old: &Table, new: &Table| {
+            for (row, _) in new.rows(false) {
+                if old.get(row).is_none() {
+                    return true;
+                }
+            }
+            false
+        };
+        let changed_table_map = |old: &Table, new: &Table| {
+            for (row, dep, _) in new.split_rows(false) {
+                if old.get(row) != Some(Some(dep)) {
+                    return true;
+                }
+            }
+            false
+        };
+        changed_table_set(&self.block_reachability, &other.block_reachability)
+            || changed_table_set(&self.edge_reachability, &other.edge_reachability)
+            || changed_table_map(&self.interval, &other.interval)
+            || self.offset != other.offset
+    }
 }
 
 impl EGraph {
