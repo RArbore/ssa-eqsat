@@ -168,8 +168,7 @@ impl EGraph {
         }
     }
 
-    fn analysis1(&mut self, old_analyses: &Analyses) {
-        // Block reachability
+    fn block_reachability(&mut self, old_analyses: &Analyses) {
         let mut merge = |_, _| panic!();
         self.analyses.block_reachability.insert(&[0], &mut merge);
         for (block, preds) in &self.cfg {
@@ -186,8 +185,7 @@ impl EGraph {
         }
     }
 
-    fn analysis2(&mut self, old_analyses: &Analyses) {
-        // Edge reachability
+    fn edge_reachability(&mut self, old_analyses: &Analyses) {
         let mut merge = |_, _| panic!();
         for (block, preds) in &self.cfg {
             for (pred, cond) in preds {
@@ -209,7 +207,7 @@ impl EGraph {
         }
     }
 
-    fn analysis3(&mut self) {
+    fn analysis1(&mut self) {
         // z => [z, z]
         let mut matches = vec![];
         for (row, _) in self.constant.rows(false) {
@@ -239,7 +237,7 @@ impl EGraph {
         }
     }
 
-    fn analysis4(&mut self) {
+    fn analysis2(&mut self) {
         // param => [MIN, MAX]
         let mut matches = vec![];
         for (row, _) in self.param.rows(false) {
@@ -261,11 +259,11 @@ impl EGraph {
         }
     }
 
-    fn analysis5(&mut self, old_analyses: &Analyses) {
+    fn analysis3(&mut self) {
         // <>([a, b]) => [?, ?]
         let mut matches = vec![];
         for (unary, _) in self.unary.rows(false) {
-            for (input, _) in old_analyses.interval.rows(false) {
+            for (input, _) in self.analyses.interval.rows(false) {
                 if input[0] == unary[1] {
                     matches.push((unary[2], unary[0], input[1]));
                 }
@@ -294,13 +292,13 @@ impl EGraph {
         }
     }
 
-    fn analysis6(&mut self, old_analyses: &Analyses) {
+    fn analysis4(&mut self) {
         // <>([a, b], [c, d]) => [?, ?]
         let mut matches = vec![];
         for (binary, _) in self.binary.rows(false) {
-            for (lhs, _) in old_analyses.interval.rows(false) {
+            for (lhs, _) in self.analyses.interval.rows(false) {
                 if lhs[0] == binary[1] {
-                    for (rhs, _) in old_analyses.interval.rows(false) {
+                    for (rhs, _) in self.analyses.interval.rows(false) {
                         if rhs[0] == binary[2] {
                             matches.push((binary[3], binary[0], lhs[1], rhs[1]));
                         }
@@ -332,7 +330,7 @@ impl EGraph {
         }
     }
 
-    fn analysis7(&mut self, old_analyses: &Analyses) {
+    fn analysis5(&mut self, old_analyses: &Analyses) {
         // phi(_, x, y), x = [a, b], y != [_, _] => [a, b]
         // phi(_, x, y), x != [_, _], y = [a, b] => [a, b]
         // phi(_, x, y), x = [a, b], y = [c, d] => [a, b] \cap [c, d]
@@ -347,14 +345,28 @@ impl EGraph {
                 .edge_reachability
                 .rows(false)
                 .any(|(row, _)| row[0] == preds[1].0 && row[1] == phi[0]);
+            let lhs_back_edge = self.back_edges.contains(&(preds[0].0, phi[0]));
+            let rhs_back_edge = self.back_edges.contains(&(preds[1].0, phi[0]));
 
             let mut lhs = None;
             let mut rhs = None;
             for (interval, _) in old_analyses.interval.rows(false) {
-                if interval[0] == phi[1] && lhs_reachable {
+                if interval[0] == phi[1] && lhs_reachable && lhs_back_edge {
+                    let old = self.interval_interner.get(old_analyses.interval.get(&[phi[3]]).unwrap().unwrap().into());
+                    let new = self.interval_interner.get(interval[1].into());
+                    lhs = Some(self.interval_interner.intern(old.widen(&new)).into());
+                }
+                if interval[0] == phi[2] && rhs_reachable && rhs_back_edge {
+                    let old = self.interval_interner.get(old_analyses.interval.get(&[phi[3]]).unwrap().unwrap().into());
+                    let new = self.interval_interner.get(interval[1].into());
+                    rhs = Some(self.interval_interner.intern(old.widen(&new)).into());
+                }
+            }
+            for (interval, _) in self.analyses.interval.rows(false) {
+                if interval[0] == phi[1] && lhs_reachable && !lhs_back_edge {
                     lhs = Some(interval[1]);
                 }
-                if interval[0] == phi[2] && rhs_reachable {
+                if interval[0] == phi[2] && rhs_reachable && !rhs_back_edge {
                     rhs = Some(interval[1]);
                 }
             }
@@ -390,14 +402,14 @@ impl EGraph {
         }
     }
 
-    fn analysis8(&mut self, old_analyses: &Analyses) {
+    fn analysis6(&mut self) {
         // x = y + [c, c] => x = y + c
         // x = [c, c] + y => x = y + c
         // x = y - [c, c] => x = y + -c
         let mut matches = vec![];
         for (binary, _) in self.binary.rows(false) {
             if binary[0] == BinaryOp::Add as Value {
-                for (interval, _) in old_analyses.interval.rows(false) {
+                for (interval, _) in self.analyses.interval.rows(false) {
                     if interval[0] == binary[1]
                         && let Some(cons) = self
                             .interval_interner
@@ -416,7 +428,7 @@ impl EGraph {
                     }
                 }
             } else if binary[0] == BinaryOp::Sub as Value {
-                for (interval, _) in old_analyses.interval.rows(false) {
+                for (interval, _) in self.analyses.interval.rows(false) {
                     if interval[0] == binary[2]
                         && let Some(cons) = self
                             .interval_interner
@@ -434,7 +446,7 @@ impl EGraph {
         }
     }
 
-    fn analysis9(&mut self) {
+    fn analysis7(&mut self) {
         // Constants are always witnessed
         // Parameters are always witnessed
         for (row, _) in self.constant.rows(false) {
@@ -445,13 +457,14 @@ impl EGraph {
         }
     }
 
-    fn analysis10(&mut self, old_analyses: &Analyses) {
+    fn analysis8(&mut self) {
         // x = <>(y), z = <>(w), y = w + 0 => x = z + 0
         let mut matches = vec![];
         for (unary1, _) in self.unary.rows(false) {
             for (unary2, _) in self.unary.rows(false) {
                 if unary1[0] == unary2[0]
-                    && old_analyses
+                    && self
+                        .analyses
                         .offset
                         .query(unary1[1].into(), unary2[1].into())
                         == OptionalQueryResult::Related(0)
@@ -466,17 +479,19 @@ impl EGraph {
         }
     }
 
-    fn analysis11(&mut self, old_analyses: &Analyses) {
+    fn analysis9(&mut self) {
         // x = <>(y, z), a = <>(b, c), y = b + 0, z = c + 0 => x = a + 0
         let mut matches = vec![];
         for (binary1, _) in self.binary.rows(false) {
             for (binary2, _) in self.binary.rows(false) {
                 if binary1[0] == binary2[0]
-                    && old_analyses
+                    && self
+                        .analyses
                         .offset
                         .query(binary1[1].into(), binary2[1].into())
                         == OptionalQueryResult::Related(0)
-                    && old_analyses
+                    && self
+                        .analyses
                         .offset
                         .query(binary1[2].into(), binary2[2].into())
                         == OptionalQueryResult::Related(0)
@@ -491,7 +506,7 @@ impl EGraph {
         }
     }
 
-    fn analysis12(&mut self, old_analyses: &Analyses) {
+    fn analysis10(&mut self, old_analyses: &Analyses) {
         // a = phi(l, x, y), b = phi(l, z, w), x = z + c, y = w + c => a = b + c
         // a = phi(l, x, y), b = phi(l, z, w), x = z + c, y != _ + _ => a = b + c
         // a = phi(l, x, y), b = phi(l, z, w), x != _ + _, y = w + c => a = b + c
@@ -508,16 +523,28 @@ impl EGraph {
                         .edge_reachability
                         .rows(false)
                         .any(|(row, _)| row[0] == preds[1].0 && row[1] == phi1[0]);
+                    let lhs_back_edge = self.back_edges.contains(&(preds[0].0, phi1[0]));
+                    let rhs_back_edge = self.back_edges.contains(&(preds[1].0, phi1[0]));
+
                     let lhs = if lhs_reachable {
-                        old_analyses.offset.query(phi1[1].into(), phi2[1].into())
+                        if lhs_back_edge {
+                            old_analyses.offset.query(phi1[1].into(), phi2[1].into())
+                        } else {
+                            self.analyses.offset.query(phi1[1].into(), phi2[1].into())
+                        }
                     } else {
                         OptionalQueryResult::Unknown
                     };
                     let rhs = if rhs_reachable {
-                        old_analyses.offset.query(phi1[2].into(), phi2[2].into())
+                        if rhs_back_edge {
+                            old_analyses.offset.query(phi1[2].into(), phi2[2].into())
+                        } else {
+                            self.analyses.offset.query(phi1[2].into(), phi2[2].into())
+                        }
                     } else {
                         OptionalQueryResult::Unknown
                     };
+
                     match (lhs, rhs) {
                         (OptionalQueryResult::Related(offset), OptionalQueryResult::Unknown)
                         | (OptionalQueryResult::Unknown, OptionalQueryResult::Related(offset)) => {
@@ -555,7 +582,7 @@ impl EGraph {
         }
     }
 
-    fn refine1(&mut self) {
+    fn analysis11(&mut self) {
         // x = [c1, c1], y = [c2, c2] => x = y + (c1 - c2)
         let mut matches = vec![];
         for (interval1, _) in self.analyses.interval.rows(false) {
@@ -586,73 +613,28 @@ impl EGraph {
         loop {
             let old_analyses = replace(&mut self.analyses, Analyses::new(self.uf.num_class_ids()));
 
-            self.analysis1(&old_analyses);
-            self.analysis2(&old_analyses);
-            self.analysis3();
-            self.analysis4();
-            self.analysis5(&old_analyses);
-            self.analysis6(&old_analyses);
-            self.analysis7(&old_analyses);
-            self.analysis8(&old_analyses);
-            self.analysis9();
-            self.analysis10(&old_analyses);
-            self.analysis11(&old_analyses);
-            self.analysis12(&old_analyses);
+            self.block_reachability(&old_analyses);
+            self.edge_reachability(&old_analyses);
 
-            self.refine1();
-
-            self.widen(&old_analyses);
+            for _ in 0..100 {
+                self.analysis1();
+                self.analysis2();
+                self.analysis3();
+                self.analysis4();
+                self.analysis5(&old_analyses);
+                self.analysis6();
+                self.analysis7();
+                self.analysis8();
+                self.analysis9();
+                self.analysis10(&old_analyses);
+                self.analysis11();
+            }
 
             if !old_analyses.changed(&self.analyses) {
                 break;
             }
         }
-    }
-
-    fn widen(&mut self, old_analyses: &Analyses) {
-        let widening_points: BTreeSet<BlockId> = self
-            .cfg
-            .iter()
-            .filter_map(|(block, preds)| {
-                if preds.iter().any(|(pred, _)| {
-                    pred >= block
-                        && old_analyses
-                            .edge_reachability
-                            .rows(false)
-                            .any(|(row, _)| row[0] == *pred && row[1] == *block)
-                }) {
-                    Some(*block)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let widening_eclasses: BTreeSet<Value> = self
-            .phi
-            .rows(false)
-            .filter_map(|(row, _)| {
-                if widening_points.contains(&row[0]) {
-                    Some(row[3])
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let mut widen = |this_iter: Value, last_iter: Value| -> Value {
-            self.interval_interner
-                .intern(
-                    self.interval_interner
-                        .get(last_iter.into())
-                        .widen(&self.interval_interner.get(this_iter.into())),
-                )
-                .into()
-        };
-        for (row, _) in old_analyses.interval.rows(false) {
-            if widening_eclasses.contains(&row[0]) {
-                self.analyses.interval.insert(row, &mut widen);
-            }
-        }
+        println!("{:?}", self.analyses.offset);
     }
 
     pub fn rebuild(&mut self) -> bool {

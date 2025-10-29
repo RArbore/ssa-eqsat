@@ -9,6 +9,7 @@ use crate::lattices::{Interner, Interval};
 
 pub(crate) type CFG = BTreeMap<BlockId, Vec<(BlockId, ClassId)>>;
 
+#[derive(Debug)]
 pub(crate) struct Analyses {
     pub(crate) block_reachability: Table,
     pub(crate) edge_reachability: Table,
@@ -16,6 +17,7 @@ pub(crate) struct Analyses {
     pub(crate) offset: OptionalLabelledUnionFind<i32>,
 }
 
+#[derive(Debug)]
 pub struct EGraph {
     pub(crate) constant: Table,
     pub(crate) param: Table,
@@ -35,6 +37,7 @@ pub struct EGraph {
 pub fn rpo(cfg: &CFG) -> Vec<BlockId> {
     let mut succs: BTreeMap<BlockId, Vec<BlockId>> = BTreeMap::new();
 
+    succs.entry(0).or_default();
     for (block, preds) in cfg {
         succs.entry(*block).or_default();
         for (pred, _) in preds {
