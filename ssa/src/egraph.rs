@@ -127,7 +127,7 @@ impl EGraph {
         for (row, _) in self.constant.rows(false) {
             eclasses[row[1] as usize]
                 .0
-                .push((format!("{}", row[0 as usize]), vec![]));
+                .push((format!("{}", row[0 as usize] as i32), vec![]));
         }
         for (row, _) in self.param.rows(false) {
             eclasses[row[1] as usize]
