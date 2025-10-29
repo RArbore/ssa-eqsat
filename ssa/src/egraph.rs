@@ -25,13 +25,16 @@ pub struct EGraph {
 
     pub(crate) analyses: Analyses,
 
-    pub(crate) cfg: CFG,
     pub(crate) uf: UnionFind,
     pub(crate) interval_interner: Interner<Interval>,
+
+    pub(crate) cfg: CFG,
+    pub(crate) back_edges: BTreeSet<(BlockId, BlockId)>,
 }
 
 pub fn rpo(cfg: &CFG) -> Vec<BlockId> {
     let mut succs: BTreeMap<BlockId, Vec<BlockId>> = BTreeMap::new();
+
     for (block, preds) in cfg {
         succs.entry(*block).or_default();
         for (pred, _) in preds {
@@ -61,6 +64,23 @@ pub fn rpo_helper(
     }
 
     rpo.push(block);
+}
+
+pub fn back_edges(rpo: &Vec<BlockId>, cfg: &CFG) -> BTreeSet<(BlockId, BlockId)> {
+    let mut visited = BTreeSet::new();
+    let mut back_edges = BTreeSet::new();
+
+    visited.insert(0);
+    for block in &rpo[1..] {
+        visited.insert(*block);
+        for (pred, _) in &cfg[block] {
+            if !visited.contains(pred) {
+                back_edges.insert((*pred, *block));
+            }
+        }
+    }
+
+    back_edges
 }
 
 impl Analyses {
@@ -100,14 +120,7 @@ impl Analyses {
 impl EGraph {
     pub fn from_ssa(ssa: &SSA) -> EGraph {
         let num_classes = ssa.terms().count() as u32;
-        let mut egraph = EGraph {
-            constant: Table::new(1, true),
-            param: Table::new(1, true),
-            phi: Table::new(3, true),
-            unary: Table::new(2, true),
-            binary: Table::new(3, true),
-            analyses: Analyses::new(num_classes),
-            cfg: ssa
+        let cfg = ssa
                 .cfg
                 .iter()
                 .map(|(block, preds)| {
@@ -119,9 +132,19 @@ impl EGraph {
                             .collect(),
                     )
                 })
-                .collect(),
+                .collect();
+        let back_edges = back_edges(&rpo(&cfg), &cfg);
+        let mut egraph = EGraph {
+            constant: Table::new(1, true),
+            param: Table::new(1, true),
+            phi: Table::new(3, true),
+            unary: Table::new(2, true),
+            binary: Table::new(3, true),
+            analyses: Analyses::new(num_classes),
             uf: UnionFind::new_all_not_equals(num_classes),
             interval_interner: Interner::new(),
+            cfg,
+            back_edges,
         };
         let mut merge =
             |a: Value, b: Value| -> Value { egraph.uf.merge(a.into(), b.into()).into() };
