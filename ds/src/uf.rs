@@ -133,8 +133,8 @@ impl<G: Group> LabelledUnionFind<G> {
             let old_action = a_action.compose(&b_action.inverse());
             if old_action != action {
                 panic!(
-                    "Disagreeing relations in labelled UF: {:?} != {:?}",
-                    old_action, action
+                    "Disagreeing relations in labelled UF for IDs {:?} and {:?}: {:?} != {:?}",
+                    a, b, old_action, action
                 );
             }
             a_root
@@ -238,6 +238,20 @@ impl<G: Group> OptionalLabelledUnionFind<G> {
         self.witness(a);
         self.witness(b);
         self.uf.merge(a, b, action)
+    }
+
+    pub fn canon(&self, uf: &UnionFind) {
+        let somes = self
+            .some_set
+            .borrow()
+            .iter()
+            .map(|id| *id)
+            .collect::<Vec<_>>();
+        for some in somes {
+            if uf.find(some) != some {
+                self.merge(uf.find(some), some, G::identity());
+            }
+        }
     }
 }
 

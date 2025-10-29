@@ -1,5 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Result, Write};
+use std::process::Command;
+
+use tempfile::NamedTempFile;
 
 use ds::table::{Table, Value};
 use ds::uf::{ClassId, OptionalLabelledUnionFind, UnionFind};
@@ -124,18 +127,18 @@ impl EGraph {
     pub fn from_ssa(ssa: &SSA) -> EGraph {
         let num_classes = ssa.terms().count() as u32;
         let cfg = ssa
-                .cfg
-                .iter()
-                .map(|(block, preds)| {
-                    (
-                        *block,
-                        preds
-                            .iter()
-                            .map(|(block, term)| (*block, ClassId::from(*term)))
-                            .collect(),
-                    )
-                })
-                .collect();
+            .cfg
+            .iter()
+            .map(|(block, preds)| {
+                (
+                    *block,
+                    preds
+                        .iter()
+                        .map(|(block, term)| (*block, ClassId::from(*term)))
+                        .collect(),
+                )
+            })
+            .collect();
         let back_edges = back_edges(&rpo(&cfg), &cfg);
         let mut egraph = EGraph {
             constant: Table::new(1, true),
@@ -269,5 +272,12 @@ impl EGraph {
             }
         }
         writeln!(w, "}}")
+    }
+
+    pub fn xdot(&self) -> Result<()> {
+        let mut tmp = NamedTempFile::new().unwrap();
+        self.to_dot(&mut tmp)?;
+        Command::new("xdot").arg(tmp.path()).status().unwrap();
+        Ok(())
     }
 }

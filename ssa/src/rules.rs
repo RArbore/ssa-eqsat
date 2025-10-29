@@ -1,9 +1,8 @@
 use core::mem::replace;
-use std::collections::BTreeSet;
 
 use ds::table::Value;
 use ds::uf::OptionalQueryResult;
-use imp::term::{BinaryOp, BlockId, UnaryOp};
+use imp::term::{BinaryOp, UnaryOp};
 
 use crate::egraph::{Analyses, EGraph};
 use crate::lattices::Interval;
@@ -634,7 +633,6 @@ impl EGraph {
                 break;
             }
         }
-        println!("{:?}", self.analyses.offset);
     }
 
     pub fn rebuild(&mut self) -> bool {
@@ -663,6 +661,12 @@ impl EGraph {
             dst.push(root);
             lhs != row[1] || rhs != row[2] || root != row[3]
         };
+        let mut interval_canon = |row: &[Value], dst: &mut Vec<Value>| {
+            let root = self.uf.find(row[0].into()).into();
+            dst.push(root);
+            dst.push(row[1]);
+            root != row[0]
+        };
 
         let mut ever_changed = false;
         loop {
@@ -672,6 +676,8 @@ impl EGraph {
             changed = self.phi.rebuild(&mut merge, &mut two_canon) || changed;
             changed = self.unary.rebuild(&mut merge, &mut one_canon) || changed;
             changed = self.binary.rebuild(&mut merge, &mut two_canon) || changed;
+            changed = self.analyses.interval.rebuild(&mut merge, &mut interval_canon) || changed;
+            self.analyses.offset.canon(&self.uf);
             if !changed {
                 break ever_changed;
             } else {

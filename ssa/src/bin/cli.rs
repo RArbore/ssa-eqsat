@@ -1,20 +1,10 @@
 use std::io::{Read, Result, stdin};
-use std::process::Command;
-
-use tempfile::NamedTempFile;
 
 use imp::ast::Interner;
 use imp::grammar::ProgramParser;
 use imp::term::naive_ssa_translation;
 
 use ssa::egraph::EGraph;
-
-fn xdot(egraph: &EGraph) -> Result<()> {
-    let mut tmp = NamedTempFile::new().unwrap();
-    egraph.to_dot(&mut tmp)?;
-    Command::new("xdot").arg(tmp.path()).status().unwrap();
-    Ok(())
-}
 
 pub fn main() -> Result<()> {
     let mut interner = Interner::new();
@@ -29,9 +19,12 @@ pub fn main() -> Result<()> {
         let terms = naive_ssa_translation(func);
         let mut egraph = EGraph::from_ssa(&terms);
 
-        xdot(&egraph)?;
-        egraph.outer_fixpoint();
-        xdot(&egraph)?;
+        egraph.optimistic_analysis();
+        egraph.xdot()?;
+        egraph.saturate_rewrites();
+        egraph.xdot()?;
+        egraph.optimistic_analysis();
+        egraph.xdot()?;
     }
 
     Ok(())
