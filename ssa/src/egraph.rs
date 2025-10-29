@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Result, Write};
 
 use ds::table::{Table, Value};
@@ -28,6 +28,39 @@ pub struct EGraph {
     pub(crate) cfg: CFG,
     pub(crate) uf: UnionFind,
     pub(crate) interval_interner: Interner<Interval>,
+}
+
+pub fn rpo(cfg: &CFG) -> Vec<BlockId> {
+    let mut succs: BTreeMap<BlockId, Vec<BlockId>> = BTreeMap::new();
+    for (block, preds) in cfg {
+        succs.entry(*block).or_default();
+        for (pred, _) in preds {
+            succs.entry(*pred).or_default().push(*block);
+        }
+    }
+
+    let mut rpo = vec![];
+    let mut visited = BTreeSet::new();
+    rpo_helper(0, &succs, &mut visited, &mut rpo);
+    rpo.reverse();
+    rpo
+}
+
+pub fn rpo_helper(
+    block: BlockId,
+    succs: &BTreeMap<BlockId, Vec<BlockId>>,
+    visited: &mut BTreeSet<BlockId>,
+    rpo: &mut Vec<BlockId>,
+) {
+    visited.insert(block);
+
+    for succ in &succs[&block] {
+        if !visited.contains(succ) {
+            rpo_helper(*succ, succs, visited, rpo);
+        }
+    }
+
+    rpo.push(block);
 }
 
 impl Analyses {
