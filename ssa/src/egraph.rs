@@ -14,8 +14,8 @@ pub(crate) type CFG = BTreeMap<BlockId, Vec<(BlockId, ClassId)>>;
 
 #[derive(Debug)]
 pub(crate) struct Analyses {
-    pub(crate) block_reachability: Table,
-    pub(crate) edge_reachability: Table,
+    pub(crate) block_unreachability: Table,
+    pub(crate) edge_unreachability: Table,
     pub(crate) interval: Table,
     pub(crate) offset: OptionalLabelledUnionFind<i32>,
 }
@@ -92,22 +92,14 @@ pub fn back_edges(rpo: &Vec<BlockId>, cfg: &CFG) -> BTreeSet<(BlockId, BlockId)>
 impl Analyses {
     pub(crate) fn new(num_classes: u32) -> Self {
         Analyses {
-            block_reachability: Table::new(1, false),
-            edge_reachability: Table::new(2, false),
+            block_unreachability: Table::new(1, true),
+            edge_unreachability: Table::new(2, true),
             interval: Table::new(1, true),
             offset: OptionalLabelledUnionFind::new_all_none(num_classes),
         }
     }
 
     pub(crate) fn changed(&self, other: &Self) -> bool {
-        let changed_table_set = |old: &Table, new: &Table| {
-            for (row, _) in new.rows(false) {
-                if old.get(row).is_none() {
-                    return true;
-                }
-            }
-            false
-        };
         let changed_table_map = |old: &Table, new: &Table| {
             for (row, dep, _) in new.split_rows(false) {
                 if old.get(row) != Some(Some(dep)) {
@@ -116,8 +108,8 @@ impl Analyses {
             }
             false
         };
-        changed_table_set(&self.block_reachability, &other.block_reachability)
-            || changed_table_set(&self.edge_reachability, &other.edge_reachability)
+        changed_table_map(&self.block_unreachability, &other.block_unreachability)
+            || changed_table_map(&self.edge_unreachability, &other.edge_unreachability)
             || changed_table_map(&self.interval, &other.interval)
             || self.offset != other.offset
     }
@@ -198,21 +190,21 @@ impl EGraph {
         }
         for (row, _) in self.phi.rows(false) {
             let preds = &self.cfg[&row[0]];
-            let lhs_reachable = self
+            let lhs_unreachable = self
                 .analyses
-                .edge_reachability
+                .edge_unreachability
                 .rows(false)
-                .any(|(reach_row, _)| reach_row[0] == preds[0].0 && reach_row[1] == row[0]);
-            let rhs_reachable = self
+                .any(|(reach_row, _)| reach_row[0] == preds[0].0 && reach_row[1] == row[0] && reach_row[2] == 1);
+            let rhs_unreachable = self
                 .analyses
-                .edge_reachability
+                .edge_unreachability
                 .rows(false)
-                .any(|(reach_row, _)| reach_row[0] == preds[1].0 && reach_row[1] == row[0]);
+                .any(|(reach_row, _)| reach_row[0] == preds[1].0 && reach_row[1] == row[0] && reach_row[2] == 1);
             eclasses[row[3] as usize].0.push((
                 format!("Φ"),
                 vec![
-                    (row[1], if lhs_reachable { "solid" } else { "dotted" }),
-                    (row[2], if rhs_reachable { "solid" } else { "dotted" }),
+                    (row[1], if lhs_unreachable { "dotted" } else { "solid" }),
+                    (row[2], if rhs_unreachable { "dotted" } else { "solid" }),
                 ],
             ));
         }

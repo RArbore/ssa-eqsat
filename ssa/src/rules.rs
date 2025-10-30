@@ -28,21 +28,15 @@ impl EGraph {
         let mut matches = vec![];
         for (phi, _) in self.phi.rows(false) {
             let preds = &self.cfg[&phi[0]];
-            let lhs_reachable = self
-                .analyses
-                .edge_reachability
-                .rows(false)
-                .any(|(row, _)| row[0] == preds[0].0 && row[1] == phi[0]);
-            let rhs_reachable = self
-                .analyses
-                .edge_reachability
-                .rows(false)
-                .any(|(row, _)| row[0] == preds[1].0 && row[1] == phi[0]);
+            let lhs_edge = [preds[0].0, phi[0]];
+            let rhs_edge = [preds[1].0, phi[0]];
+            let lhs_unreachable = self.analyses.edge_unreachability.get(&lhs_edge) == Some(Some(1));
+            let rhs_unreachable = self.analyses.edge_unreachability.get(&rhs_edge) == Some(Some(1));
 
-            if phi[2] == phi[3] && lhs_reachable {
+            if phi[2] == phi[3] && !lhs_unreachable {
                 matches.push((phi[1], phi[3]));
             }
-            if phi[1] == phi[3] && rhs_reachable {
+            if phi[1] == phi[3] && !rhs_unreachable {
                 matches.push((phi[2], phi[3]));
             }
         }
@@ -58,20 +52,14 @@ impl EGraph {
         let mut matches = vec![];
         for (phi, _) in self.phi.rows(false) {
             let preds = &self.cfg[&phi[0]];
-            let lhs_reachable = self
-                .analyses
-                .edge_reachability
-                .rows(false)
-                .any(|(row, _)| row[0] == preds[0].0 && row[1] == phi[0]);
-            let rhs_reachable = self
-                .analyses
-                .edge_reachability
-                .rows(false)
-                .any(|(row, _)| row[0] == preds[1].0 && row[1] == phi[0]);
+            let lhs_edge = [preds[0].0, phi[0]];
+            let rhs_edge = [preds[1].0, phi[0]];
+            let lhs_unreachable = self.analyses.edge_unreachability.get(&lhs_edge) == Some(Some(1));
+            let rhs_unreachable = self.analyses.edge_unreachability.get(&rhs_edge) == Some(Some(1));
 
-            if lhs_reachable && !rhs_reachable {
+            if !lhs_unreachable && rhs_unreachable {
                 matches.push((phi[1], phi[3]));
-            } else if !lhs_reachable && rhs_reachable {
+            } else if lhs_unreachable && !rhs_unreachable {
                 matches.push((phi[2], phi[3]));
             }
         }
