@@ -155,10 +155,82 @@ impl EGraph {
         }
     }
 
+    fn analysis1(&mut self, old_analyses: &Analyses) {
+        // Block reachability
+        let mut merge = |a, b| {
+            assert_eq!(a, b);
+            a
+        };
+        self.analyses
+            .block_unreachability
+            .insert(&[0, 0], &mut merge);
+        'outer: for (block, preds) in &self.cfg {
+            let mut all_pred_edges_unreachable = 1;
+            for (pred, _) in preds {
+                if self.back_edges.contains(&(*pred, *block)) {
+                    let edge_unreachable = old_analyses
+                        .edge_unreachability
+                        .get(&[*pred, *block])
+                        .unwrap_or(Some(1))
+                        .unwrap();
+                    if edge_unreachable == 0 {
+                        all_pred_edges_unreachable = 0;
+                        break;
+                    }
+                } else {
+                    let Some(Some(edge_unreachable)) =
+                        self.analyses.edge_unreachability.get(&[*pred, *block])
+                    else {
+                        continue 'outer;
+                    };
+                    if edge_unreachable == 0 {
+                        all_pred_edges_unreachable = 0;
+                        break;
+                    }
+                }
+            }
+            self.analyses
+                .block_unreachability
+                .insert(&[*block, all_pred_edges_unreachable], &mut merge);
+        }
+    }
+
+    fn analysis2(&mut self) {
+        // Edge reachability
+        let mut merge = |a, b| {
+            assert_eq!(a, b);
+            a
+        };
+        for (block, preds) in &self.cfg {
+            for (pred, cond) in preds {
+                if self.analyses.block_unreachability.get(&[*pred]) == Some(Some(1))
+                    || self
+                        .analyses
+                        .interval
+                        .get(&[(*cond).into()])
+                        .map(|id| {
+                            self.interval_interner.get(id.unwrap().into())
+                                == Interval { low: 0, high: 0 }
+                        })
+                        .unwrap_or(false)
+                {
+                    self.analyses
+                        .edge_unreachability
+                        .insert(&[*pred, *block, 1], &mut merge);
+                }
+            }
+        }
+    }
+
     pub fn optimistic_analysis(&mut self) {
         self.analyses = Analyses::new(self.uf.num_class_ids());
         loop {
             let old_analyses = replace(&mut self.analyses, Analyses::new(self.uf.num_class_ids()));
+
+            for _ in 0..100 {
+                self.analysis1(&old_analyses);
+                self.analysis2();
+            }
 
             if !old_analyses.changed(&self.analyses) {
                 break;
