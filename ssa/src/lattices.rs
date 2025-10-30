@@ -3,7 +3,9 @@ use core::cmp::{max, min};
 use core::hash::Hash;
 use core::marker::PhantomData;
 use std::collections::HashMap;
+use std::i32;
 
+use ds::table::Value;
 use imp::term::{BinaryOp, UnaryOp};
 
 #[derive(Debug)]
@@ -94,10 +96,17 @@ pub struct Interval {
 }
 
 impl Interval {
-    pub fn bottom() -> Interval {
+    pub fn top() -> Interval {
         Interval {
             low: i32::MIN,
             high: i32::MAX,
+        }
+    }
+
+    pub fn bottom() -> Interval {
+        Interval {
+            low: i32::MAX,
+            high: i32::MIN,
         }
     }
 
@@ -155,7 +164,7 @@ impl Interval {
                 }
             }),
         })()
-        .unwrap_or(Interval::bottom())
+        .unwrap_or(Interval::top())
     }
 
     pub fn forward_binary(&self, other: &Interval, op: BinaryOp) -> Interval {
@@ -252,6 +261,15 @@ impl Interval {
                 }
             }),
         })()
-        .unwrap_or(Interval::bottom())
+        .unwrap_or(Interval::top())
+    }
+}
+
+impl Interner<Interval> {
+    pub fn merge(&self) -> impl FnMut(Value, Value) -> Value + '_ {
+        |a: Value, b: Value| {
+            self.intern(self.get(a.into()).intersect(&self.get(b.into())))
+                .into()
+        }
     }
 }

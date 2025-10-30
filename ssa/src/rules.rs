@@ -1,10 +1,11 @@
+use core::cmp::{max, min};
 use core::mem::replace;
 
-use ds::table::Value;
+use ds::table::{Table, Value};
 use ds::uf::OptionalQueryResult;
-use imp::term::{BinaryOp, UnaryOp};
+use imp::term::{BinaryOp, BlockId, UnaryOp};
 
-use crate::egraph::{Analyses, EGraph};
+use crate::egraph::{Analyses, EGraph, cfg_canon};
 use crate::lattices::Interval;
 
 impl EGraph {
@@ -157,10 +158,7 @@ impl EGraph {
 
     fn analysis1(&mut self, old_analyses: &Analyses) {
         // Block reachability
-        let mut merge = |a, b| {
-            assert_eq!(a, b);
-            a
-        };
+        let mut merge = |a, b| max(a, b);
         self.analyses
             .block_unreachability
             .insert(&[0, 0], &mut merge);
@@ -197,13 +195,11 @@ impl EGraph {
 
     fn analysis2(&mut self) {
         // Edge reachability
-        let mut merge = |a, b| {
-            assert_eq!(a, b);
-            a
-        };
+        let mut merge = |a, b| max(a, b);
         for (block, preds) in &self.cfg {
             for (pred, cond) in preds {
-                if self.analyses.block_unreachability.get(&[*pred]) == Some(Some(1))
+                let pred_unreachability = self.analyses.block_unreachability.get(&[*pred]);
+                if pred_unreachability == Some(Some(1))
                     || self
                         .analyses
                         .interval
@@ -217,19 +213,139 @@ impl EGraph {
                     self.analyses
                         .edge_unreachability
                         .insert(&[*pred, *block, 1], &mut merge);
+                } else if pred_unreachability == Some(Some(0)) {
+                    self.analyses
+                        .edge_unreachability
+                        .insert(&[*pred, *block, 0], &mut merge);
                 }
             }
         }
     }
 
+    fn analysis3(&mut self) {
+        // Cons(c) => [c, c]
+        let mut merge = self.interval_interner.merge();
+        for (row, _) in self.constant.rows(false) {
+            let cons = row[0] as i32;
+            let interval = self
+                .interval_interner
+                .intern(Interval {
+                    low: cons,
+                    high: cons,
+                })
+                .into();
+            self.analyses
+                .interval
+                .insert(&[row[1], interval], &mut merge);
+        }
+    }
+
+    fn analysis4(&mut self) {
+        // Param => [MIN, MAX]
+        let mut merge = self.interval_interner.merge();
+        for (row, _) in self.param.rows(false) {
+            let interval = self.interval_interner.intern(Interval::top()).into();
+            self.analyses
+                .interval
+                .insert(&[row[1], interval], &mut merge);
+        }
+    }
+
+    fn analysis5(&mut self) {
+        // <>(x), x = [a, b] => <>([a, b])
+        let mut merge = self.interval_interner.merge();
+        for (row, _) in self.unary.rows(false) {
+            if let Some(interval) = self.analyses.interval.get(&[row[1]]) {
+                let op = UnaryOp::n(row[0]).unwrap();
+                let interval = self.interval_interner.get(interval.unwrap().into());
+                let result = self
+                    .interval_interner
+                    .intern(interval.forward_unary(op))
+                    .into();
+                self.analyses.interval.insert(&[row[2], result], &mut merge);
+            }
+        }
+    }
+
+    fn analysis6(&mut self) {
+        // <>(x, y), x = [a, b], y = [c, d] => <>([a, b], [c, d])
+        let mut merge = self.interval_interner.merge();
+        for (row, _) in self.binary.rows(false) {
+            if let (Some(lhs_interval), Some(rhs_interval)) = (
+                self.analyses.interval.get(&[row[1]]),
+                self.analyses.interval.get(&[row[2]]),
+            ) {
+                let op = BinaryOp::n(row[0]).unwrap();
+                let lhs_interval = self.interval_interner.get(lhs_interval.unwrap().into());
+                let rhs_interval = self.interval_interner.get(rhs_interval.unwrap().into());
+                let result = self
+                    .interval_interner
+                    .intern(lhs_interval.forward_binary(&rhs_interval, op))
+                    .into();
+                self.analyses.interval.insert(&[row[3], result], &mut merge);
+            }
+        }
+    }
+
+    fn analysis7(&mut self, old_analyses: &Analyses) {
+        // phi(_, x, y), x = [a, b], y = [c, d] => [a, b] \cup [c, d]
+        // phi(_, x, y), x = [a, b], y? => [a, b]
+        // phi(_, x, y), x?, y = [a, b] => [a, b]
+        let get_interval_on_edge = |interval: &Table,
+                                    edge: (BlockId, BlockId),
+                                    input: Value|
+         -> Option<Interval> {
+            let is_back_edge = self.back_edges.contains(&edge);
+            let Some(unreachable) = self.analyses.edge_unreachability.get(&[edge.0, edge.1]) else {
+                return None;
+            };
+            let unreachable = unreachable.unwrap() == 1;
+            if unreachable || (is_back_edge && old_analyses.interval.get(&[input]).is_none()) {
+                Some(Interval::bottom())
+            } else if is_back_edge && let Some(old_interval) = old_analyses.interval.get(&[input]) {
+                Some(self.interval_interner.get(old_interval.unwrap().into()))
+            } else if let Some(value) = interval.get(&[input]) {
+                Some(self.interval_interner.get(value.unwrap().into()))
+            } else {
+                None
+            }
+        };
+        let mut merge = self.interval_interner.merge();
+        for (row, _) in self.phi.rows(false) {
+            let block = row[0];
+            let lhs_pred = self.cfg[&block][0].0;
+            let rhs_pred = self.cfg[&block][1].0;
+            let Some(lhs_interval) =
+                get_interval_on_edge(&self.analyses.interval, (lhs_pred, block), row[1])
+            else {
+                continue;
+            };
+            let Some(rhs_interval) =
+                get_interval_on_edge(&self.analyses.interval, (rhs_pred, block), row[2])
+            else {
+                continue;
+            };
+            let joined = self
+                .interval_interner
+                .intern(lhs_interval.union(&rhs_interval))
+                .into();
+            self.analyses.interval.insert(&[row[3], joined], &mut merge);
+        }
+    }
+
     pub fn optimistic_analysis(&mut self) {
         self.analyses = Analyses::new(self.uf.num_class_ids());
-        loop {
+        for _ in 0..100 {
             let old_analyses = replace(&mut self.analyses, Analyses::new(self.uf.num_class_ids()));
 
             for _ in 0..100 {
                 self.analysis1(&old_analyses);
                 self.analysis2();
+                self.analysis3();
+                self.analysis4();
+                self.analysis5();
+                self.analysis6();
+                self.analysis7(&old_analyses);
             }
 
             if !old_analyses.changed(&self.analyses) {
@@ -264,15 +380,7 @@ impl EGraph {
             dst.push(root);
             lhs != row[1] || rhs != row[2] || root != row[3]
         };
-        let mut interval_merge = |a: Value, b: Value| -> Value {
-            self.interval_interner
-                .intern(
-                    self.interval_interner
-                        .get(a.into())
-                        .intersect(&self.interval_interner.get(b.into())),
-                )
-                .into()
-        };
+        let mut interval_merge = self.interval_interner.merge();
         let mut interval_canon = |row: &[Value], dst: &mut Vec<Value>| {
             let root = self.uf.find(row[0].into()).into();
             dst.push(root);
@@ -294,6 +402,7 @@ impl EGraph {
                 .rebuild(&mut interval_merge, &mut interval_canon)
                 || changed;
             self.analyses.offset.canon(&self.uf);
+            cfg_canon(&mut self.cfg, &self.uf);
             if !changed {
                 break ever_changed;
             } else {

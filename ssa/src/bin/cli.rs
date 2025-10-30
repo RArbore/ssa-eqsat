@@ -20,9 +20,9 @@ pub fn main() -> Result<()> {
         let mut egraph = EGraph::from_ssa(&terms);
 
         egraph.optimistic_analysis();
-        egraph.xdot()?;
+        //egraph.xdot()?;
         egraph.saturate_rewrites();
-        egraph.xdot()?;
+        //egraph.xdot()?;
         egraph.optimistic_analysis();
         egraph.xdot()?;
     }

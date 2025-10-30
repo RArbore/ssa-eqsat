@@ -37,6 +37,14 @@ pub struct EGraph {
     pub(crate) back_edges: BTreeSet<(BlockId, BlockId)>,
 }
 
+pub fn cfg_canon(cfg: &mut CFG, uf: &UnionFind) {
+    for (_, preds) in cfg.iter_mut() {
+        for (_, cond) in preds.iter_mut() {
+            *cond = uf.find(*cond);
+        }
+    }
+}
+
 pub fn rpo(cfg: &CFG) -> Vec<BlockId> {
     let mut succs: BTreeMap<BlockId, Vec<BlockId>> = BTreeMap::new();
 
@@ -175,7 +183,7 @@ impl EGraph {
     }
 
     pub fn to_dot<W: Write>(&self, w: &mut W) -> Result<()> {
-        let mut eclasses: Vec<(Vec<(String, Vec<(Value, &str)>)>, Option<Interval>)> =
+        let mut eclasses: Vec<(Vec<(String, Vec<(Value, String)>)>, Option<Interval>)> =
             vec![(vec![], None); self.uf.num_class_ids() as usize];
 
         for (row, _) in self.constant.rows(false) {
@@ -190,34 +198,54 @@ impl EGraph {
         }
         for (row, _) in self.phi.rows(false) {
             let preds = &self.cfg[&row[0]];
-            let lhs_unreachable = self
-                .analyses
-                .edge_unreachability
-                .rows(false)
-                .any(|(reach_row, _)| reach_row[0] == preds[0].0 && reach_row[1] == row[0] && reach_row[2] == 1);
-            let rhs_unreachable = self
-                .analyses
-                .edge_unreachability
-                .rows(false)
-                .any(|(reach_row, _)| reach_row[0] == preds[1].0 && reach_row[1] == row[0] && reach_row[2] == 1);
+            let lhs_unreachable =
+                self.analyses
+                    .edge_unreachability
+                    .rows(false)
+                    .any(|(reach_row, _)| {
+                        reach_row[0] == preds[0].0 && reach_row[1] == row[0] && reach_row[2] == 1
+                    });
+            let rhs_unreachable =
+                self.analyses
+                    .edge_unreachability
+                    .rows(false)
+                    .any(|(reach_row, _)| {
+                        reach_row[0] == preds[1].0 && reach_row[1] == row[0] && reach_row[2] == 1
+                    });
+            let lhs_back_edge = self.back_edges.contains(&(preds[0].0, row[0]));
+            let rhs_back_edge = self.back_edges.contains(&(preds[1].0, row[0]));
             eclasses[row[3] as usize].0.push((
                 format!("Φ"),
                 vec![
-                    (row[1], if lhs_unreachable { "dotted" } else { "solid" }),
-                    (row[2], if rhs_unreachable { "dotted" } else { "solid" }),
+                    (
+                        row[1],
+                        format!(
+                            "style=\"{}\", color=\"{}\"",
+                            if lhs_unreachable { "dashed" } else { "solid" },
+                            if lhs_back_edge { "red" } else { "black" }
+                        ),
+                    ),
+                    (
+                        row[2],
+                        format!(
+                            "style=\"{}\", color=\"{}\"",
+                            if rhs_unreachable { "dashed" } else { "solid" },
+                            if rhs_back_edge { "red" } else { "black" }
+                        ),
+                    ),
                 ],
             ));
         }
         for (row, _) in self.unary.rows(false) {
             eclasses[row[2] as usize].0.push((
                 format!("{:?}", UnaryOp::n(row[0]).unwrap()),
-                vec![(row[1], "solid")],
+                vec![(row[1], "".into())],
             ));
         }
         for (row, _) in self.binary.rows(false) {
             eclasses[row[3] as usize].0.push((
                 format!("{:?}", BinaryOp::n(row[0]).unwrap()),
-                vec![(row[1], "solid"), (row[2], "solid")],
+                vec![(row[1], "".into()), (row[2], "".into())],
             ));
         }
 
@@ -257,7 +285,7 @@ impl EGraph {
                 for child_eclass in enode.1 {
                     writeln!(
                         w,
-                        "N{}_0:s -> N{}_{} [ltail=E{}, style=\"{}\"];",
+                        "N{}_0:s -> N{}_{} [ltail=E{}, {}];",
                         child_eclass.0, eclass_idx, enode_idx, child_eclass.0, child_eclass.1
                     )?;
                 }
