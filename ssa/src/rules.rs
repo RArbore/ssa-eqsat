@@ -351,12 +351,26 @@ impl EGraph {
             let mut rhs = None;
             for (interval, _) in old_analyses.interval.rows(false) {
                 if interval[0] == phi[1] && lhs_reachable && lhs_back_edge {
-                    let old = self.interval_interner.get(old_analyses.interval.get(&[phi[3]]).unwrap().unwrap().into());
+                    let old = self.interval_interner.get(
+                        old_analyses
+                            .interval
+                            .get(&[phi[3]])
+                            .unwrap()
+                            .unwrap()
+                            .into(),
+                    );
                     let new = self.interval_interner.get(interval[1].into());
                     lhs = Some(self.interval_interner.intern(old.widen(&new)).into());
                 }
                 if interval[0] == phi[2] && rhs_reachable && rhs_back_edge {
-                    let old = self.interval_interner.get(old_analyses.interval.get(&[phi[3]]).unwrap().unwrap().into());
+                    let old = self.interval_interner.get(
+                        old_analyses
+                            .interval
+                            .get(&[phi[3]])
+                            .unwrap()
+                            .unwrap()
+                            .into(),
+                    );
                     let new = self.interval_interner.get(interval[1].into());
                     rhs = Some(self.interval_interner.intern(old.widen(&new)).into());
                 }
@@ -612,8 +626,10 @@ impl EGraph {
         loop {
             let old_analyses = replace(&mut self.analyses, Analyses::new(self.uf.num_class_ids()));
 
-            self.block_reachability(&old_analyses);
-            self.edge_reachability(&old_analyses);
+            for _ in 0..100 {
+                self.block_reachability(&old_analyses);
+                self.edge_reachability(&old_analyses);
+            }
 
             for _ in 0..100 {
                 self.analysis1();
@@ -661,6 +677,15 @@ impl EGraph {
             dst.push(root);
             lhs != row[1] || rhs != row[2] || root != row[3]
         };
+        let mut interval_merge = |a: Value, b: Value| -> Value {
+            self.interval_interner
+                .intern(
+                    self.interval_interner
+                        .get(a.into())
+                        .intersect(&self.interval_interner.get(b.into())),
+                )
+                .into()
+        };
         let mut interval_canon = |row: &[Value], dst: &mut Vec<Value>| {
             let root = self.uf.find(row[0].into()).into();
             dst.push(root);
@@ -676,7 +701,11 @@ impl EGraph {
             changed = self.phi.rebuild(&mut merge, &mut two_canon) || changed;
             changed = self.unary.rebuild(&mut merge, &mut one_canon) || changed;
             changed = self.binary.rebuild(&mut merge, &mut two_canon) || changed;
-            changed = self.analyses.interval.rebuild(&mut merge, &mut interval_canon) || changed;
+            changed = self
+                .analyses
+                .interval
+                .rebuild(&mut interval_merge, &mut interval_canon)
+                || changed;
             self.analyses.offset.canon(&self.uf);
             if !changed {
                 break ever_changed;
