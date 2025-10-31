@@ -1,8 +1,8 @@
-use core::cmp::{max, min};
+use core::cmp::max;
 use core::mem::replace;
 
 use ds::table::{Table, Value};
-use ds::uf::OptionalQueryResult;
+use ds::uf::{OptionalLabelledUnionFind, OptionalQueryResult};
 use imp::term::{BinaryOp, BlockId, UnaryOp};
 
 use crate::egraph::{Analyses, EGraph, cfg_canon};
@@ -289,27 +289,27 @@ impl EGraph {
 
     fn analysis7(&mut self, old_analyses: &Analyses) {
         // phi(_, x, y), x = [a, b], y = [c, d] => [a, b] \cup [c, d]
-        // phi(_, x, y), x = [a, b], y? => [a, b]
-        // phi(_, x, y), x?, y = [a, b] => [a, b]
-        let get_interval_on_edge = |interval: &Table,
-                                    edge: (BlockId, BlockId),
-                                    input: Value|
-         -> Option<Interval> {
-            let is_back_edge = self.back_edges.contains(&edge);
-            let Some(unreachable) = self.analyses.edge_unreachability.get(&[edge.0, edge.1]) else {
-                return None;
+        let get_interval_on_edge =
+            |interval: &Table, edge: (BlockId, BlockId), input: Value| -> Option<Interval> {
+                let is_back_edge = self.back_edges.contains(&edge);
+                let Some(unreachable) = self.analyses.edge_unreachability.get(&[edge.0, edge.1])
+                else {
+                    return None;
+                };
+                let unreachable = unreachable.unwrap() == 1;
+                if !unreachable
+                    && is_back_edge
+                    && let Some(old_interval) = old_analyses.interval.get(&[input])
+                {
+                    Some(self.interval_interner.get(old_interval.unwrap().into()))
+                } else if unreachable || is_back_edge {
+                    Some(Interval::bottom())
+                } else if let Some(value) = interval.get(&[input]) {
+                    Some(self.interval_interner.get(value.unwrap().into()))
+                } else {
+                    None
+                }
             };
-            let unreachable = unreachable.unwrap() == 1;
-            if unreachable || (is_back_edge && old_analyses.interval.get(&[input]).is_none()) {
-                Some(Interval::bottom())
-            } else if is_back_edge && let Some(old_interval) = old_analyses.interval.get(&[input]) {
-                Some(self.interval_interner.get(old_interval.unwrap().into()))
-            } else if let Some(value) = interval.get(&[input]) {
-                Some(self.interval_interner.get(value.unwrap().into()))
-            } else {
-                None
-            }
-        };
         let mut merge = self.interval_interner.merge();
         for (row, _) in self.phi.rows(false) {
             let block = row[0];
@@ -416,7 +416,76 @@ impl EGraph {
         }
     }
 
-    fn analysis12(&mut self) {
+    fn analysis12(&mut self, old_analyses: &Analyses) {
+        // x = phi(l, a, b), y = phi(l, c, d), a = c + cons, b = d + cons => x = y + cons
+        let get_offset_on_edge = |offset: &OptionalLabelledUnionFind<i32>,
+                                  edge: (BlockId, BlockId),
+                                  first: Value,
+                                  second: Value|
+         -> Option<Option<i32>> {
+            let is_back_edge = self.back_edges.contains(&edge);
+            let Some(unreachable) = self.analyses.edge_unreachability.get(&[edge.0, edge.1]) else {
+                return None;
+            };
+            let unreachable = unreachable.unwrap() == 1;
+            if !unreachable
+                && is_back_edge
+                && let OptionalQueryResult::Related(old_offset) =
+                    old_analyses.offset.query(first.into(), second.into())
+            {
+                Some(Some(old_offset))
+            } else if unreachable
+                || (is_back_edge
+                    && old_analyses.offset.query(first.into(), second.into())
+                        == OptionalQueryResult::Unknown)
+            {
+                Some(None)
+            } else if let OptionalQueryResult::Related(offset) =
+                offset.query(first.into(), second.into())
+            {
+                Some(Some(offset))
+            } else {
+                None
+            }
+        };
+        for (row1, _) in self.phi.rows(false) {
+            for (row2, _) in self.phi.rows(false) {
+                if row1[0] == row2[0] {
+                    let block = row1[0];
+                    let lhs_pred = self.cfg[&block][0].0;
+                    let rhs_pred = self.cfg[&block][1].0;
+                    let Some(lhs_offset) = get_offset_on_edge(
+                        &self.analyses.offset,
+                        (lhs_pred, block),
+                        row1[1],
+                        row2[1],
+                    ) else {
+                        continue;
+                    };
+                    let Some(rhs_offset) = get_offset_on_edge(
+                        &self.analyses.offset,
+                        (rhs_pred, block),
+                        row1[2],
+                        row2[2],
+                    ) else {
+                        continue;
+                    };
+                    match (lhs_offset, rhs_offset) {
+                        (Some(lhs_offset), Some(rhs_offset)) if lhs_offset == rhs_offset => {
+                            self.analyses
+                                .offset
+                                .merge(row1[3].into(), row2[3].into(), lhs_offset);
+                        }
+                        (Some(offset), None) | (None, Some(offset)) => {
+                            self.analyses
+                                .offset
+                                .merge(row1[3].into(), row2[3].into(), offset);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
     }
 
     fn analysis13(&mut self) {
@@ -425,7 +494,9 @@ impl EGraph {
         for (row, _) in self.analyses.interval.rows(false) {
             if let Some(cons) = self.interval_interner.get(row[1].into()).try_constant() {
                 if let Some((last_class, last_cons)) = last_cons {
-                    self.analyses.offset.merge(last_class.into(), row[0].into(), last_cons - cons);
+                    self.analyses
+                        .offset
+                        .merge(last_class.into(), row[0].into(), last_cons - cons);
                 }
                 last_cons = Some((row[0], cons));
             }
@@ -449,7 +520,7 @@ impl EGraph {
                 self.analysis9();
                 self.analysis10();
                 self.analysis11();
-                self.analysis12();
+                self.analysis12(&old_analyses);
                 self.analysis13();
             }
 
