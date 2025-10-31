@@ -333,6 +333,105 @@ impl EGraph {
         }
     }
 
+    fn analysis8(&mut self) {
+        // y = x + [c, c] => y = x + c
+        for (row, _) in self.binary.rows(false) {
+            if row[0] == BinaryOp::Add as Value {
+                if let Some(Some(lhs_interval)) = self.analyses.interval.get(&[row[1]])
+                    && let Some(cons) = self
+                        .interval_interner
+                        .get(lhs_interval.into())
+                        .try_constant()
+                {
+                    self.analyses
+                        .offset
+                        .merge(row[3].into(), row[2].into(), cons);
+                }
+                if let Some(Some(rhs_interval)) = self.analyses.interval.get(&[row[2]])
+                    && let Some(cons) = self
+                        .interval_interner
+                        .get(rhs_interval.into())
+                        .try_constant()
+                {
+                    self.analyses
+                        .offset
+                        .merge(row[3].into(), row[1].into(), cons);
+                }
+            } else if row[0] == BinaryOp::Sub as Value {
+                if let Some(Some(rhs_interval)) = self.analyses.interval.get(&[row[2]])
+                    && let Some(cons) = self
+                        .interval_interner
+                        .get(rhs_interval.into())
+                        .try_constant()
+                {
+                    self.analyses
+                        .offset
+                        .merge(row[3].into(), row[1].into(), -cons);
+                }
+            }
+        }
+    }
+
+    fn analysis9(&mut self) {
+        // x = Cons(...) | x = Param(...) => x = x + 0
+        for (row, _) in self.constant.rows(false) {
+            self.analyses.offset.witness(row[1].into());
+        }
+        for (row, _) in self.param.rows(false) {
+            self.analyses.offset.witness(row[1].into());
+        }
+    }
+
+    fn analysis10(&mut self) {
+        // x = <>(a), y = <>(b), a = b + 0 => x = y + 0
+        for (row1, _) in self.unary.rows(false) {
+            for (row2, _) in self.unary.rows(false) {
+                if row1[0] == row2[0]
+                    && self.analyses.offset.query(row1[1].into(), row2[1].into())
+                        == OptionalQueryResult::Related(0)
+                {
+                    self.analyses
+                        .offset
+                        .merge(row1[2].into(), row2[2].into(), 0);
+                }
+            }
+        }
+    }
+
+    fn analysis11(&mut self) {
+        // x = <>(a, b), y = <>(c, d), a = c + 0, b = d + 0 => x = y + 0
+        for (row1, _) in self.binary.rows(false) {
+            for (row2, _) in self.binary.rows(false) {
+                if row1[0] == row2[0]
+                    && self.analyses.offset.query(row1[1].into(), row2[1].into())
+                        == OptionalQueryResult::Related(0)
+                    && self.analyses.offset.query(row1[2].into(), row2[2].into())
+                        == OptionalQueryResult::Related(0)
+                {
+                    self.analyses
+                        .offset
+                        .merge(row1[3].into(), row2[3].into(), 0);
+                }
+            }
+        }
+    }
+
+    fn analysis12(&mut self) {
+    }
+
+    fn analysis13(&mut self) {
+        // x = [c1, c1], y = [c2, c2] => x = y + (c1 - c2)
+        let mut last_cons: Option<(Value, i32)> = None;
+        for (row, _) in self.analyses.interval.rows(false) {
+            if let Some(cons) = self.interval_interner.get(row[1].into()).try_constant() {
+                if let Some((last_class, last_cons)) = last_cons {
+                    self.analyses.offset.merge(last_class.into(), row[0].into(), last_cons - cons);
+                }
+                last_cons = Some((row[0], cons));
+            }
+        }
+    }
+
     pub fn optimistic_analysis(&mut self) {
         self.analyses = Analyses::new(self.uf.num_class_ids());
         for _ in 0..100 {
@@ -346,6 +445,12 @@ impl EGraph {
                 self.analysis5();
                 self.analysis6();
                 self.analysis7(&old_analyses);
+                self.analysis8();
+                self.analysis9();
+                self.analysis10();
+                self.analysis11();
+                self.analysis12();
+                self.analysis13();
             }
 
             if !old_analyses.changed(&self.analyses) {
