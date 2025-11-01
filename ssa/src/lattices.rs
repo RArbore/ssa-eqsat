@@ -129,12 +129,12 @@ impl Interval {
             low: if self.low > new.low {
                 i32::MIN
             } else {
-                self.low
+                min(self.low, new.low)
             },
             high: if self.high < new.high {
                 i32::MAX
             } else {
-                self.high
+                min(self.high, new.high)
             },
         }
     }

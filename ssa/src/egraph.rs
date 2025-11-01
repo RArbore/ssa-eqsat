@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Result, Write};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use tempfile::NamedTempFile;
 
@@ -297,7 +297,7 @@ impl EGraph {
     pub fn xdot(&self) -> Result<()> {
         let mut tmp = NamedTempFile::new().unwrap();
         self.to_dot(&mut tmp)?;
-        Command::new("xdot").arg(tmp.path()).status().unwrap();
+        Command::new("xdot").arg(tmp.path()).stderr(Stdio::null()).status().unwrap();
         Ok(())
     }
 }

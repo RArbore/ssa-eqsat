@@ -308,24 +308,24 @@ impl EGraph {
     fn analysis7(&mut self, old_analyses: &Analyses) {
         // phi(_, x, y), x = [a, b], y = [c, d] => [a, b] \cup [c, d]
         let get_interval_on_edge =
-            |interval: &Table, edge: (BlockId, BlockId), input: Value| -> Option<Interval> {
+            |interval: &Table, edge: (BlockId, BlockId), input: Value| -> (Option<Interval>, bool) {
                 let is_back_edge = self.back_edges.contains(&edge);
                 let Some(unreachable) = self.analyses.edge_unreachability.get(&[edge.0, edge.1])
                 else {
-                    return None;
+                    return (None, false);
                 };
                 let unreachable = unreachable.unwrap() == 1;
                 if !unreachable
                     && is_back_edge
                     && let Some(old_interval) = old_analyses.interval.get(&[input])
                 {
-                    Some(self.interval_interner.get(old_interval.unwrap().into()))
+                    (Some(self.interval_interner.get(old_interval.unwrap().into())), true)
                 } else if unreachable || is_back_edge {
-                    Some(Interval::bottom())
+                    (Some(Interval::bottom()), false)
                 } else if let Some(value) = interval.get(&[input]) {
-                    Some(self.interval_interner.get(value.unwrap().into()))
+                    (Some(self.interval_interner.get(value.unwrap().into())), false)
                 } else {
-                    None
+                    (None, false)
                 }
             };
         let mut merge = self.interval_interner.merge();
@@ -333,21 +333,32 @@ impl EGraph {
             let block = row[0];
             let lhs_pred = self.cfg[&block][0].0;
             let rhs_pred = self.cfg[&block][1].0;
-            let Some(lhs_interval) =
+            let (Some(lhs_interval), lhs_widen) =
                 get_interval_on_edge(&self.analyses.interval, (lhs_pred, block), row[1])
             else {
                 continue;
             };
-            let Some(rhs_interval) =
+            let (Some(rhs_interval), rhs_widen) =
                 get_interval_on_edge(&self.analyses.interval, (rhs_pred, block), row[2])
             else {
                 continue;
             };
-            let joined = self
+            let mut combined: Value = self
                 .interval_interner
                 .intern(lhs_interval.union(&rhs_interval))
                 .into();
-            self.analyses.interval.insert(&[row[3], joined], &mut merge);
+            if lhs_widen || rhs_widen {
+                let old = old_analyses.interval.get(&[row[3]]).unwrap().unwrap();
+                combined = self
+                    .interval_interner
+                    .intern(
+                        self.interval_interner
+                            .get(old.into())
+                            .widen(&self.interval_interner.get(combined.into())),
+                    )
+                    .into();
+            }
+            self.analyses.interval.insert(&[row[3], combined], &mut merge);
         }
     }
 
@@ -523,7 +534,7 @@ impl EGraph {
 
     pub fn optimistic_analysis(&mut self) {
         self.analyses = Analyses::new(self.uf.num_class_ids());
-        for _ in 0..100 {
+        loop {
             let old_analyses = replace(&mut self.analyses, Analyses::new(self.uf.num_class_ids()));
 
             loop {
