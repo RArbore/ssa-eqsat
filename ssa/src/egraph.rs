@@ -109,7 +109,7 @@ impl Analyses {
 
     pub(crate) fn changed(&self, other: &Self) -> bool {
         let changed_table_map = |old: &Table, new: &Table| {
-            for (row, dep, _) in new.split_rows(false) {
+            for (row, dep, _) in new.split_rows() {
                 if old.get(row) != Some(Some(dep)) {
                     return true;
                 }
@@ -186,29 +186,29 @@ impl EGraph {
         let mut eclasses: Vec<(Vec<(String, Vec<(Value, String)>)>, Option<Interval>)> =
             vec![(vec![], None); self.uf.num_class_ids() as usize];
 
-        for (row, _) in self.constant.rows(false) {
+        for (row, _) in self.constant.rows() {
             eclasses[row[1] as usize]
                 .0
                 .push((format!("{}", row[0 as usize] as i32), vec![]));
         }
-        for (row, _) in self.param.rows(false) {
+        for (row, _) in self.param.rows() {
             eclasses[row[1] as usize]
                 .0
                 .push((format!("#{}", row[0 as usize]), vec![]));
         }
-        for (row, _) in self.phi.rows(false) {
+        for (row, _) in self.phi.rows() {
             let preds = &self.cfg[&row[0]];
             let lhs_unreachable =
                 self.analyses
                     .edge_unreachability
-                    .rows(false)
+                    .rows()
                     .any(|(reach_row, _)| {
                         reach_row[0] == preds[0].0 && reach_row[1] == row[0] && reach_row[2] == 1
                     });
             let rhs_unreachable =
                 self.analyses
                     .edge_unreachability
-                    .rows(false)
+                    .rows()
                     .any(|(reach_row, _)| {
                         reach_row[0] == preds[1].0 && reach_row[1] == row[0] && reach_row[2] == 1
                     });
@@ -236,20 +236,20 @@ impl EGraph {
                 ],
             ));
         }
-        for (row, _) in self.unary.rows(false) {
+        for (row, _) in self.unary.rows() {
             eclasses[row[2] as usize].0.push((
                 format!("{:?}", UnaryOp::n(row[0]).unwrap()),
                 vec![(row[1], "".into())],
             ));
         }
-        for (row, _) in self.binary.rows(false) {
+        for (row, _) in self.binary.rows() {
             eclasses[row[3] as usize].0.push((
                 format!("{:?}", BinaryOp::n(row[0]).unwrap()),
                 vec![(row[1], "".into()), (row[2], "".into())],
             ));
         }
 
-        for (row, _) in self.analyses.interval.rows(false) {
+        for (row, _) in self.analyses.interval.rows() {
             eclasses[row[0] as usize].1 = Some(self.interval_interner.get(row[1].into()));
         }
 

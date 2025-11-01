@@ -12,7 +12,7 @@ impl EGraph {
     fn rewrite1(&mut self) {
         // phi(x, x) => x
         let mut matches = vec![];
-        for (phi, _) in self.phi.rows(false) {
+        for (phi, _) in self.phi.rows() {
             if phi[1] == phi[2] {
                 matches.push((phi[1], phi[3]));
             }
@@ -27,7 +27,7 @@ impl EGraph {
         // x = phi(a, x) => a
         // x = phi(x, a) => a
         let mut matches = vec![];
-        for (phi, _) in self.phi.rows(false) {
+        for (phi, _) in self.phi.rows() {
             let preds = &self.cfg[&phi[0]];
             let lhs_edge = [preds[0].0, phi[0]];
             let rhs_edge = [preds[1].0, phi[0]];
@@ -51,7 +51,7 @@ impl EGraph {
         // phi(x, unreachable) => x
         // phi(unreachable, x) => x
         let mut matches = vec![];
-        for (phi, _) in self.phi.rows(false) {
+        for (phi, _) in self.phi.rows() {
             let preds = &self.cfg[&phi[0]];
             let lhs_edge = [preds[0].0, phi[0]];
             let rhs_edge = [preds[1].0, phi[0]];
@@ -73,7 +73,7 @@ impl EGraph {
     fn rewrite4(&mut self) {
         // [z, z] => z
         let mut matches = vec![];
-        for (row, _) in self.analyses.interval.rows(false) {
+        for (row, _) in self.analyses.interval.rows() {
             if let Some(cons) = self.interval_interner.get(row[1].into()).try_constant() {
                 matches.push((cons, row[0]));
             }
@@ -100,7 +100,7 @@ impl EGraph {
     fn rewrite6(&mut self) {
         // x + x => 2 * x
         let mut matches = vec![];
-        for (row, _) in self.binary.rows(false) {
+        for (row, _) in self.binary.rows() {
             if row[0] == BinaryOp::Add as Value && row[1] == row[2] {
                 matches.push((row[1], row[3]))
             }
@@ -121,9 +121,9 @@ impl EGraph {
     fn rewrite7(&mut self) {
         // 2 * x => x + x
         let mut matches = vec![];
-        for (mul, _) in self.binary.rows(false) {
+        for (mul, _) in self.binary.rows() {
             if mul[0] == BinaryOp::Mul as Value {
-                for (two, _) in self.constant.rows(false) {
+                for (two, _) in self.constant.rows() {
                     if two[0] == 2 && two[1] == mul[1] {
                         matches.push((mul[2], mul[3]));
                     }
@@ -141,9 +141,9 @@ impl EGraph {
     fn rewrite8(&mut self) {
         // 1 * x => x
         let mut matches = vec![];
-        for (mul, _) in self.binary.rows(false) {
+        for (mul, _) in self.binary.rows() {
             if mul[0] == BinaryOp::Mul as Value {
-                for (one, _) in self.constant.rows(false) {
+                for (one, _) in self.constant.rows() {
                     if one[0] == 1 && one[1] == mul[1] {
                         matches.push((mul[2], mul[3]));
                     }
@@ -160,7 +160,7 @@ impl EGraph {
         // x == x => 1
         // x != x => 0
         let mut matches = vec![];
-        for (binary, _) in self.binary.rows(false) {
+        for (binary, _) in self.binary.rows() {
             if binary[0] == BinaryOp::EE as Value && binary[1] == binary[2] {
                 matches.push((binary[3], 1));
             } else if binary[0] == BinaryOp::NE as Value && binary[1] == binary[2] {
@@ -243,7 +243,7 @@ impl EGraph {
     fn analysis3(&mut self) {
         // Cons(c) => [c, c]
         let mut merge = self.interval_interner.merge();
-        for (row, _) in self.constant.rows(false) {
+        for (row, _) in self.constant.rows() {
             let cons = row[0] as i32;
             let interval = self
                 .interval_interner
@@ -261,7 +261,7 @@ impl EGraph {
     fn analysis4(&mut self) {
         // Param => [MIN, MAX]
         let mut merge = self.interval_interner.merge();
-        for (row, _) in self.param.rows(false) {
+        for (row, _) in self.param.rows() {
             let interval = self.interval_interner.intern(Interval::top()).into();
             self.analyses
                 .interval
@@ -272,7 +272,7 @@ impl EGraph {
     fn analysis5(&mut self) {
         // <>(x), x = [a, b] => <>([a, b])
         let mut merge = self.interval_interner.merge();
-        for (row, _) in self.unary.rows(false) {
+        for (row, _) in self.unary.rows() {
             if let Some(interval) = self.analyses.interval.get(&[row[1]]) {
                 let op = UnaryOp::n(row[0]).unwrap();
                 let interval = self.interval_interner.get(interval.unwrap().into());
@@ -288,7 +288,7 @@ impl EGraph {
     fn analysis6(&mut self) {
         // <>(x, y), x = [a, b], y = [c, d] => <>([a, b], [c, d])
         let mut merge = self.interval_interner.merge();
-        for (row, _) in self.binary.rows(false) {
+        for (row, _) in self.binary.rows() {
             if let (Some(lhs_interval), Some(rhs_interval)) = (
                 self.analyses.interval.get(&[row[1]]),
                 self.analyses.interval.get(&[row[2]]),
@@ -329,7 +329,7 @@ impl EGraph {
                 }
             };
         let mut merge = self.interval_interner.merge();
-        for (row, _) in self.phi.rows(false) {
+        for (row, _) in self.phi.rows() {
             let block = row[0];
             let lhs_pred = self.cfg[&block][0].0;
             let rhs_pred = self.cfg[&block][1].0;
@@ -353,7 +353,7 @@ impl EGraph {
 
     fn analysis8(&mut self) {
         // y = x + [c, c] => y = x + c
-        for (row, _) in self.binary.rows(false) {
+        for (row, _) in self.binary.rows() {
             if row[0] == BinaryOp::Add as Value {
                 if let Some(Some(lhs_interval)) = self.analyses.interval.get(&[row[1]])
                     && let Some(cons) = self
@@ -392,18 +392,18 @@ impl EGraph {
 
     fn analysis9(&mut self) {
         // x = Cons(...) | x = Param(...) => x = x + 0
-        for (row, _) in self.constant.rows(false) {
+        for (row, _) in self.constant.rows() {
             self.analyses.offset.witness(row[1].into());
         }
-        for (row, _) in self.param.rows(false) {
+        for (row, _) in self.param.rows() {
             self.analyses.offset.witness(row[1].into());
         }
     }
 
     fn analysis10(&mut self) {
         // x = <>(a), y = <>(b), a = b + 0 => x = y + 0
-        for (row1, _) in self.unary.rows(false) {
-            for (row2, _) in self.unary.rows(false) {
+        for (row1, _) in self.unary.rows() {
+            for (row2, _) in self.unary.rows() {
                 if row1[0] == row2[0]
                     && self.analyses.offset.query(row1[1].into(), row2[1].into())
                         == OptionalQueryResult::Related(0)
@@ -418,8 +418,8 @@ impl EGraph {
 
     fn analysis11(&mut self) {
         // x = <>(a, b), y = <>(c, d), a = c + 0, b = d + 0 => x = y + 0
-        for (row1, _) in self.binary.rows(false) {
-            for (row2, _) in self.binary.rows(false) {
+        for (row1, _) in self.binary.rows() {
+            for (row2, _) in self.binary.rows() {
                 if row1[0] == row2[0]
                     && self.analyses.offset.query(row1[1].into(), row2[1].into())
                         == OptionalQueryResult::Related(0)
@@ -466,8 +466,8 @@ impl EGraph {
                 None
             }
         };
-        for (row1, _) in self.phi.rows(false) {
-            for (row2, _) in self.phi.rows(false) {
+        for (row1, _) in self.phi.rows() {
+            for (row2, _) in self.phi.rows() {
                 if row1[0] == row2[0] {
                     let block = row1[0];
                     let lhs_pred = self.cfg[&block][0].0;
@@ -509,7 +509,7 @@ impl EGraph {
     fn analysis13(&mut self) {
         // x = [c1, c1], y = [c2, c2] => x = y + (c1 - c2)
         let mut last_cons: Option<(Value, i32)> = None;
-        for (row, _) in self.analyses.interval.rows(false) {
+        for (row, _) in self.analyses.interval.rows() {
             if let Some(cons) = self.interval_interner.get(row[1].into()).try_constant() {
                 if let Some((last_class, last_cons)) = last_cons {
                     self.analyses
