@@ -526,7 +526,7 @@ impl EGraph {
         for _ in 0..100 {
             let old_analyses = replace(&mut self.analyses, Analyses::new(self.uf.num_class_ids()));
 
-            for _ in 0..100 {
+            loop {
                 self.analysis1(&old_analyses);
                 self.analysis2();
                 self.analysis3();
@@ -540,6 +540,14 @@ impl EGraph {
                 self.analysis11();
                 self.analysis12(&old_analyses);
                 self.analysis13();
+
+                let changed1 = self.analyses.block_unreachability.check_changed();
+                let changed2 = self.analyses.edge_unreachability.check_changed();
+                let changed3 = self.analyses.interval.check_changed();
+                let changed4 = self.analyses.offset.check_changed();
+                if !changed1 && !changed2 && !changed3 && !changed4 {
+                    break;
+                }
             }
 
             if !old_analyses.changed(&self.analyses) {

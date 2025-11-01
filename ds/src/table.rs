@@ -1,4 +1,5 @@
 use core::hash::Hasher;
+use core::mem::replace;
 use std::collections::BTreeSet;
 use std::collections::btree_set::Iter;
 use std::iter::Peekable;
@@ -29,6 +30,7 @@ pub struct Table {
     rows: Rows,
     table: HashTable<TableEntry>,
     deleted_rows: BTreeSet<RowId>,
+    changed: bool,
 }
 
 #[derive(Debug)]
@@ -81,6 +83,7 @@ impl Table {
             },
             table: HashTable::new(),
             deleted_rows: BTreeSet::new(),
+            changed: false,
         }
     }
 
@@ -90,6 +93,10 @@ impl Table {
 
     pub fn has_dependent(&self) -> bool {
         self.rows.has_dependent
+    }
+
+    pub fn check_changed(&mut self) -> bool {
+        replace(&mut self.changed, false)
     }
 
     pub fn insert<'a, 'b, 'c, M>(
@@ -116,13 +123,18 @@ impl Table {
                 if has_dependent {
                     let old = self.rows.get_row(row_id)[num_determinant];
                     let new = row[num_determinant];
-                    self.rows.get_row_mut(row_id)[num_determinant] = merge(old, new);
+                    let merged = merge(old, new);
+                    if merged != old {
+                        self.changed = true;
+                    }
+                    self.rows.get_row_mut(row_id)[num_determinant] = merged;
                 }
                 (self.rows.get_row(row_id), row_id)
             }
             Entry::Vacant(vacant) => {
                 let row_id = self.rows.add_row(row);
                 vacant.insert(TableEntry { hash, row: row_id });
+                self.changed = true;
                 (self.rows.get_row(row_id), row_id)
             }
         }
@@ -158,6 +170,7 @@ impl Table {
         };
         occupied.remove();
         self.deleted_rows.insert(row_id);
+        self.changed = true;
         row
     }
 

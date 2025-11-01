@@ -56,6 +56,7 @@ impl From<ClassId> for u32 {
 pub struct LabelledUnionFind<G: Group> {
     vec: RefCell<Vec<(ClassId, G)>>,
     num_classes: Cell<u32>,
+    changed: Cell<bool>,
 }
 
 impl<G: Group> LabelledUnionFind<G> {
@@ -63,6 +64,7 @@ impl<G: Group> LabelledUnionFind<G> {
         Self {
             vec: RefCell::new(Vec::new()),
             num_classes: Cell::new(0),
+            changed: Cell::new(false),
         }
     }
 
@@ -74,7 +76,12 @@ impl<G: Group> LabelledUnionFind<G> {
                     .collect(),
             ),
             num_classes: Cell::new(amount),
+            changed: Cell::new(false),
         }
+    }
+
+    pub fn check_changed(&self) -> bool {
+        self.changed.replace(false)
     }
 
     pub fn makeset(&self) -> ClassId {
@@ -83,6 +90,7 @@ impl<G: Group> LabelledUnionFind<G> {
         let id = ClassId(len.try_into().unwrap());
         vec.push((id, G::identity()));
         self.num_classes.set(self.num_classes.get() + 1);
+        self.changed.set(true);
         id
     }
 
@@ -150,6 +158,7 @@ impl<G: Group> LabelledUnionFind<G> {
                 ),
             );
             self.num_classes.set(self.num_classes.get() - 1);
+            self.changed.set(true);
             a_root
         } else {
             self.set_parent(
@@ -160,6 +169,7 @@ impl<G: Group> LabelledUnionFind<G> {
                 ),
             );
             self.num_classes.set(self.num_classes.get() - 1);
+            self.changed.set(true);
             b_root
         }
     }
@@ -193,6 +203,10 @@ impl<G: Group> OptionalLabelledUnionFind<G> {
         }
     }
 
+    pub fn check_changed(&self) -> bool {
+        self.uf.check_changed()
+    }
+
     pub fn makeset(&self) -> ClassId {
         self.uf.makeset()
     }
@@ -211,6 +225,7 @@ impl<G: Group> OptionalLabelledUnionFind<G> {
 
     pub fn witness(&self, id: ClassId) {
         if !self.some_set.borrow().contains(&id) {
+            self.uf.changed.set(true);
             assert_eq!(self.uf.parent(id), (id, G::identity()));
         }
         self.some_set.borrow_mut().insert(id);
