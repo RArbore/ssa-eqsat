@@ -1,10 +1,10 @@
 fn example2(x) {
-    y = 0;
-    z = x;
+    y = x;
     while y < 10 {
-        z = (z + 8) + (1 * 0);
-        y = y + 1;
-	z = z - 8;
+        xt = x;
+        x = y * y + y * 5;
+        y = xt * (y + 5);
     }
-    return x - z;
+
+    return x - y;
 }
