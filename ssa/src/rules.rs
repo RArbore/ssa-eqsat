@@ -670,7 +670,7 @@ impl EGraph {
             + self.unary.num_rows()
             + self.binary.num_rows();
         let mut num_classes = self.uf.num_classes();
-        loop {
+        for _ in 0..3 {
             self.rewrite1();
             self.rewrite2();
             self.rewrite3();
@@ -703,7 +703,7 @@ impl EGraph {
     }
 
     pub fn outer_fixpoint(&mut self) {
-        loop {
+        for _ in 0..3 {
             self.optimistic_analysis();
             if !self.saturate_rewrites() {
                 break;
