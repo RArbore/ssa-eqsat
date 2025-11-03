@@ -19,10 +19,7 @@ pub fn main() -> Result<()> {
         let terms = naive_ssa_translation(func);
         let mut egraph = EGraph::from_ssa(&terms);
 
-        egraph.optimistic_analysis();
-        egraph.saturate_rewrites();
-        egraph.optimistic_analysis();
-        egraph.saturate_rewrites();
+        egraph.outer_fixpoint();
         egraph.xdot()?;
     }
 
