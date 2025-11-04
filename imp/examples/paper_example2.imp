@@ -3,7 +3,7 @@ fn example2(x) {
     while y < 10 {
         xt = x;
         x = y * y + y * 5;
-        y = xt * (y + 5);
+        y = xt * (y + 5 + 0);
     }
 
     return x - y;
