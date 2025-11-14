@@ -212,6 +212,26 @@ impl EGraph {
         }
     }
 
+    fn rewrite12(&mut self) {
+        // a + (b + c) => (a + b) + c
+        let mut matches = vec![];
+        for (add1, _) in self.binary.rows() {
+            if add1[0] == BinaryOp::Add as Value {
+                for (add2, _) in self.binary.rows() {
+                    if add2[0] == BinaryOp::Add as Value && add1[2] == add2[3] {
+                        matches.push((add1[1], add2[1], add2[2], add1[3]));
+                    }
+                }
+            }
+        }
+
+        let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
+        for m in matches {
+            let a_b = self.binary.insert(&[BinaryOp::Add as Value, m.0, m.1, self.uf.makeset().into()], &mut merge).0[3].into();
+            self.binary.insert(&[BinaryOp::Add as Value, a_b, m.2, m.3], &mut merge);
+        }
+    }
+
     fn analysis1(&mut self, old_analyses: &Analyses) {
         // Block reachability
         let mut merge = |a, b| max(a, b);
@@ -682,6 +702,7 @@ impl EGraph {
             self.rewrite9();
             self.rewrite10();
             self.rewrite11();
+            self.rewrite12();
 
             let new_num_nodes = self.constant.num_rows()
                 + self.param.num_rows()
