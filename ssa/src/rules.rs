@@ -5,7 +5,8 @@ use ds::table::{Table, Value};
 use ds::uf::{OptionalLabelledUnionFind, OptionalQueryResult};
 use imp::term::{BinaryOp, BlockId, UnaryOp};
 
-use crate::egraph::{Analyses, EGraph, cfg_canon};
+use crate::cfg::cfg_canon;
+use crate::egraph::{Analyses, EGraph};
 use crate::lattices::Interval;
 
 impl EGraph {
@@ -206,9 +207,24 @@ impl EGraph {
 
         let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
         for m in matches {
-            let a_b = self.binary.insert(&[BinaryOp::Mul as Value, m.0, m.1, self.uf.makeset().into()], &mut merge).0[3].into();
-            let a_c = self.binary.insert(&[BinaryOp::Mul as Value, m.0, m.2, self.uf.makeset().into()], &mut merge).0[3].into();
-            self.binary.insert(&[BinaryOp::Add as Value, a_b, a_c, m.3], &mut merge);
+            let a_b = self
+                .binary
+                .insert(
+                    &[BinaryOp::Mul as Value, m.0, m.1, self.uf.makeset().into()],
+                    &mut merge,
+                )
+                .0[3]
+                .into();
+            let a_c = self
+                .binary
+                .insert(
+                    &[BinaryOp::Mul as Value, m.0, m.2, self.uf.makeset().into()],
+                    &mut merge,
+                )
+                .0[3]
+                .into();
+            self.binary
+                .insert(&[BinaryOp::Add as Value, a_b, a_c, m.3], &mut merge);
         }
     }
 
@@ -227,8 +243,16 @@ impl EGraph {
 
         let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
         for m in matches {
-            let a_b = self.binary.insert(&[BinaryOp::Add as Value, m.0, m.1, self.uf.makeset().into()], &mut merge).0[3].into();
-            self.binary.insert(&[BinaryOp::Add as Value, a_b, m.2, m.3], &mut merge);
+            let a_b = self
+                .binary
+                .insert(
+                    &[BinaryOp::Add as Value, m.0, m.1, self.uf.makeset().into()],
+                    &mut merge,
+                )
+                .0[3]
+                .into();
+            self.binary
+                .insert(&[BinaryOp::Add as Value, a_b, m.2, m.3], &mut merge);
         }
     }
 
@@ -365,27 +389,34 @@ impl EGraph {
 
     fn analysis7(&mut self, old_analyses: &Analyses) {
         // phi(_, x, y), x = [a, b], y = [c, d] => [a, b] \cup [c, d]
-        let get_interval_on_edge =
-            |interval: &Table, edge: (BlockId, BlockId), input: Value| -> (Option<Interval>, bool) {
-                let is_back_edge = self.back_edges.contains(&edge);
-                let Some(unreachable) = self.analyses.edge_unreachability.get(&[edge.0, edge.1])
-                else {
-                    return (None, false);
-                };
-                let unreachable = unreachable.unwrap() == 1;
-                if !unreachable
-                    && is_back_edge
-                    && let Some(old_interval) = old_analyses.interval.get(&[input])
-                {
-                    (Some(self.interval_interner.get(old_interval.unwrap().into())), true)
-                } else if unreachable || is_back_edge {
-                    (Some(Interval::bottom()), false)
-                } else if let Some(value) = interval.get(&[input]) {
-                    (Some(self.interval_interner.get(value.unwrap().into())), false)
-                } else {
-                    (None, false)
-                }
+        let get_interval_on_edge = |interval: &Table,
+                                    edge: (BlockId, BlockId),
+                                    input: Value|
+         -> (Option<Interval>, bool) {
+            let is_back_edge = self.back_edges.contains(&edge);
+            let Some(unreachable) = self.analyses.edge_unreachability.get(&[edge.0, edge.1]) else {
+                return (None, false);
             };
+            let unreachable = unreachable.unwrap() == 1;
+            if !unreachable
+                && is_back_edge
+                && let Some(old_interval) = old_analyses.interval.get(&[input])
+            {
+                (
+                    Some(self.interval_interner.get(old_interval.unwrap().into())),
+                    true,
+                )
+            } else if unreachable || is_back_edge {
+                (Some(Interval::bottom()), false)
+            } else if let Some(value) = interval.get(&[input]) {
+                (
+                    Some(self.interval_interner.get(value.unwrap().into())),
+                    false,
+                )
+            } else {
+                (None, false)
+            }
+        };
         let mut merge = self.interval_interner.merge();
         for (row, _) in self.phi.rows() {
             let block = row[0];
@@ -416,7 +447,9 @@ impl EGraph {
                     )
                     .into();
             }
-            self.analyses.interval.insert(&[row[3], combined], &mut merge);
+            self.analyses
+                .interval
+                .insert(&[row[3], combined], &mut merge);
         }
     }
 

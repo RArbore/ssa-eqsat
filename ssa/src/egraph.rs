@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::io::{Result, Write};
 use std::process::{Command, Stdio};
 
@@ -8,9 +8,8 @@ use ds::table::{Table, Value};
 use ds::uf::{ClassId, OptionalLabelledUnionFind, UnionFind};
 use imp::term::{BinaryOp, BlockId, SSA, Term, UnaryOp};
 
+use crate::cfg::{CFG, back_edges, rpo};
 use crate::lattices::{Interner, Interval};
-
-pub(crate) type CFG = BTreeMap<BlockId, Vec<(BlockId, ClassId)>>;
 
 #[derive(Debug)]
 pub(crate) struct Analyses {
@@ -35,66 +34,6 @@ pub struct EGraph {
 
     pub(crate) cfg: CFG,
     pub(crate) back_edges: BTreeSet<(BlockId, BlockId)>,
-}
-
-pub fn cfg_canon(cfg: &mut CFG, uf: &UnionFind) {
-    for (_, preds) in cfg.iter_mut() {
-        for (_, cond) in preds.iter_mut() {
-            *cond = uf.find(*cond);
-        }
-    }
-}
-
-pub fn rpo(cfg: &CFG) -> Vec<BlockId> {
-    let mut succs: BTreeMap<BlockId, Vec<BlockId>> = BTreeMap::new();
-
-    succs.entry(0).or_default();
-    for (block, preds) in cfg {
-        succs.entry(*block).or_default();
-        for (pred, _) in preds {
-            succs.entry(*pred).or_default().push(*block);
-        }
-    }
-
-    let mut rpo = vec![];
-    let mut visited = BTreeSet::new();
-    rpo_helper(0, &succs, &mut visited, &mut rpo);
-    rpo.reverse();
-    rpo
-}
-
-pub fn rpo_helper(
-    block: BlockId,
-    succs: &BTreeMap<BlockId, Vec<BlockId>>,
-    visited: &mut BTreeSet<BlockId>,
-    rpo: &mut Vec<BlockId>,
-) {
-    visited.insert(block);
-
-    for succ in &succs[&block] {
-        if !visited.contains(succ) {
-            rpo_helper(*succ, succs, visited, rpo);
-        }
-    }
-
-    rpo.push(block);
-}
-
-pub fn back_edges(rpo: &Vec<BlockId>, cfg: &CFG) -> BTreeSet<(BlockId, BlockId)> {
-    let mut visited = BTreeSet::new();
-    let mut back_edges = BTreeSet::new();
-
-    visited.insert(0);
-    for block in &rpo[1..] {
-        visited.insert(*block);
-        for (pred, _) in &cfg[block] {
-            if !visited.contains(pred) {
-                back_edges.insert((*pred, *block));
-            }
-        }
-    }
-
-    back_edges
 }
 
 impl Analyses {
@@ -139,6 +78,7 @@ impl EGraph {
                 )
             })
             .collect();
+
         let back_edges = back_edges(&rpo(&cfg), &cfg);
         let mut egraph = EGraph {
             constant: Table::new(1, true),
@@ -198,20 +138,20 @@ impl EGraph {
         }
         for (row, _) in self.phi.rows() {
             let preds = &self.cfg[&row[0]];
-            let lhs_unreachable =
-                self.analyses
-                    .edge_unreachability
-                    .rows()
-                    .any(|(reach_row, _)| {
-                        reach_row[0] == preds[0].0 && reach_row[1] == row[0] && reach_row[2] == 1
-                    });
-            let rhs_unreachable =
-                self.analyses
-                    .edge_unreachability
-                    .rows()
-                    .any(|(reach_row, _)| {
-                        reach_row[0] == preds[1].0 && reach_row[1] == row[0] && reach_row[2] == 1
-                    });
+            let lhs_unreachable = self
+                .analyses
+                .edge_unreachability
+                .rows()
+                .any(|(reach_row, _)| {
+                    reach_row[0] == preds[0].0 && reach_row[1] == row[0] && reach_row[2] == 1
+                });
+            let rhs_unreachable = self
+                .analyses
+                .edge_unreachability
+                .rows()
+                .any(|(reach_row, _)| {
+                    reach_row[0] == preds[1].0 && reach_row[1] == row[0] && reach_row[2] == 1
+                });
             let lhs_back_edge = self.back_edges.contains(&(preds[0].0, row[0]));
             let rhs_back_edge = self.back_edges.contains(&(preds[1].0, row[0]));
             eclasses[row[3] as usize].0.push((
@@ -297,7 +237,11 @@ impl EGraph {
     pub fn xdot(&self) -> Result<()> {
         let mut tmp = NamedTempFile::new().unwrap();
         self.to_dot(&mut tmp)?;
-        Command::new("xdot").arg(tmp.path()).stderr(Stdio::null()).status().unwrap();
+        Command::new("xdot")
+            .arg(tmp.path())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
         Ok(())
     }
 }
