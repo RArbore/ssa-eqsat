@@ -111,8 +111,7 @@ impl EGraph {
         let two = self
             .constant
             .insert(&[2, self.uf.makeset().into()], &mut merge)
-            .0[1]
-            .into();
+            .0[1];
         for m in matches {
             let row = [BinaryOp::Mul as Value, two, m.0, m.1];
             self.binary.insert(&row, &mut merge);
@@ -171,7 +170,7 @@ impl EGraph {
 
         let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
         for m in matches {
-            self.constant.insert(&[m.1, m.0.into()], &mut merge);
+            self.constant.insert(&[m.1, m.0], &mut merge);
         }
     }
 
@@ -186,7 +185,7 @@ impl EGraph {
 
         let mut merge = |a: Value, b: Value| -> Value { self.uf.merge(a.into(), b.into()).into() };
         for m in matches {
-            self.constant.insert(&[0, m.into()], &mut merge);
+            self.constant.insert(&[0, m], &mut merge);
         }
     }
 
@@ -213,16 +212,14 @@ impl EGraph {
                     &[BinaryOp::Mul as Value, m.0, m.1, self.uf.makeset().into()],
                     &mut merge,
                 )
-                .0[3]
-                .into();
+                .0[3];
             let a_c = self
                 .binary
                 .insert(
                     &[BinaryOp::Mul as Value, m.0, m.2, self.uf.makeset().into()],
                     &mut merge,
                 )
-                .0[3]
-                .into();
+                .0[3];
             self.binary
                 .insert(&[BinaryOp::Add as Value, a_b, a_c, m.3], &mut merge);
         }
@@ -249,8 +246,7 @@ impl EGraph {
                     &[BinaryOp::Add as Value, m.0, m.1, self.uf.makeset().into()],
                     &mut merge,
                 )
-                .0[3]
-                .into();
+                .0[3];
             self.binary
                 .insert(&[BinaryOp::Add as Value, a_b, m.2, m.3], &mut merge);
         }
@@ -477,17 +473,16 @@ impl EGraph {
                         .offset
                         .merge(row[3].into(), row[1].into(), cons);
                 }
-            } else if row[0] == BinaryOp::Sub as Value {
-                if let Some(Some(rhs_interval)) = self.analyses.interval.get(&[row[2]])
-                    && let Some(cons) = self
-                        .interval_interner
-                        .get(rhs_interval.into())
-                        .try_constant()
-                {
-                    self.analyses
-                        .offset
-                        .merge(row[3].into(), row[1].into(), -cons);
-                }
+            } else if row[0] == BinaryOp::Sub as Value
+                && let Some(Some(rhs_interval)) = self.analyses.interval.get(&[row[2]])
+                && let Some(cons) = self
+                    .interval_interner
+                    .get(rhs_interval.into())
+                    .try_constant()
+            {
+                self.analyses
+                    .offset
+                    .merge(row[3].into(), row[1].into(), -cons);
             }
         }
     }
@@ -544,10 +539,12 @@ impl EGraph {
                                   second: Value|
          -> Option<Option<i32>> {
             let is_back_edge = self.back_edges.contains(&edge);
-            let Some(unreachable) = self.analyses.edge_unreachability.get(&[edge.0, edge.1]) else {
-                return None;
-            };
-            let unreachable = unreachable.unwrap() == 1;
+            let unreachable = self
+                .analyses
+                .edge_unreachability
+                .get(&[edge.0, edge.1])?
+                .unwrap()
+                == 1;
             if !unreachable
                 && is_back_edge
                 && let OptionalQueryResult::Related(old_offset) =

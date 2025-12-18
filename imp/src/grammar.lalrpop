@@ -25,9 +25,7 @@ Func: FunctionAST = {
 Params: Vec<Symbol> = {
     => Vec::new(),
     <x:Iden> => {
-        let mut v = Vec::new();
-        v.push(interner.get_or_intern(x));
-        v
+        vec![interner.get_or_intern(x)]
     },
     <mut l:Params> "," <x:Iden?> => {
         match x {
@@ -57,7 +55,7 @@ Stmt: StatementAST = {
         StatementAST::Assign(interner.get_or_intern(i), e)
     },
     "if" <c:Expr> <ts:Block> <fs:("else" <Block>)?> => {
-        StatementAST::IfElse(c, Box::new(ts), fs.map(|fs| Box::new(fs)))
+        StatementAST::IfElse(c, Box::new(ts), fs.map(Box::new))
     },
     "while" <c:Expr> <s:Block> => {
         StatementAST::While(c, Box::new(s))
@@ -96,9 +94,7 @@ Atomic: ExpressionAST = {
 Args: Vec<ExpressionAST> = {
     => Vec::new(),
     <x:Expr> => {
-        let mut v = Vec::new();
-        v.push(x);
-        v
+        vec![x]
     },
     <mut l:Args> "," <x:Expr?> => {
         match x {

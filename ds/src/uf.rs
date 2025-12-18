@@ -9,17 +9,11 @@ pub trait Group: Clone + Debug + PartialEq + Eq {
 }
 
 impl Group for () {
-    fn identity() -> Self {
-        ()
-    }
+    fn identity() -> Self {}
 
-    fn compose(&self, _: &Self) -> Self {
-        ()
-    }
+    fn compose(&self, _: &Self) -> Self {}
 
-    fn inverse(&self) -> Self {
-        ()
-    }
+    fn inverse(&self) -> Self {}
 }
 
 impl Group for i32 {
@@ -256,12 +250,7 @@ impl<G: Group> OptionalLabelledUnionFind<G> {
     }
 
     pub fn canon(&self, uf: &UnionFind) {
-        let somes = self
-            .some_set
-            .borrow()
-            .iter()
-            .map(|id| *id)
-            .collect::<Vec<_>>();
+        let somes = self.some_set.borrow().iter().copied().collect::<Vec<_>>();
         for some in somes {
             if uf.find(some) != some {
                 self.merge(uf.find(some), some, G::identity());

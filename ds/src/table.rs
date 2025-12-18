@@ -99,9 +99,9 @@ impl Table {
         replace(&mut self.changed, false)
     }
 
-    pub fn insert<'a, 'b, 'c, M>(
+    pub fn insert<'a, M>(
         &'a mut self,
-        row: &'b [Value],
+        row: &[Value],
         merge: &mut M,
     ) -> (&'a [Value], RowId)
     where
@@ -140,7 +140,7 @@ impl Table {
         }
     }
 
-    pub fn get<'a, 'b>(&'a self, determinant: &'b [Value]) -> Option<Option<Value>> {
+    pub fn get(&self, determinant: &[Value]) -> Option<Option<Value>> {
         let num_determinant = self.num_determinant();
         assert_eq!(determinant.len(), num_determinant);
         let hash = hash(determinant);

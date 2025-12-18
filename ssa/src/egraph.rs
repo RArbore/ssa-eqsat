@@ -105,17 +105,17 @@ impl EGraph {
                 Term::Phi(loc, lhs, rhs) => {
                     egraph
                         .phi
-                        .insert(&[loc as Value, lhs.into(), rhs.into(), term_id], &mut merge);
+                        .insert(&[loc as Value, lhs, rhs, term_id], &mut merge);
                 }
                 Term::Unary(op, input) => {
                     egraph
                         .unary
-                        .insert(&[op as Value, input.into(), term_id], &mut merge);
+                        .insert(&[op as Value, input, term_id], &mut merge);
                 }
                 Term::Binary(op, lhs, rhs) => {
                     egraph
                         .binary
-                        .insert(&[op as Value, lhs.into(), rhs.into(), term_id], &mut merge);
+                        .insert(&[op as Value, lhs, rhs, term_id], &mut merge);
                 }
             }
         }
@@ -129,12 +129,12 @@ impl EGraph {
         for (row, _) in self.constant.rows() {
             eclasses[row[1] as usize]
                 .0
-                .push((format!("{}", row[0 as usize] as i32), vec![]));
+                .push((format!("{}", row[0] as i32), vec![]));
         }
         for (row, _) in self.param.rows() {
             eclasses[row[1] as usize]
                 .0
-                .push((format!("#{}", row[0 as usize]), vec![]));
+                .push((format!("#{}", row[0]), vec![]));
         }
         for (row, _) in self.phi.rows() {
             let preds = &self.cfg[&row[0]];
@@ -155,7 +155,7 @@ impl EGraph {
             let lhs_back_edge = self.back_edges.contains(&(preds[0].0, row[0]));
             let rhs_back_edge = self.back_edges.contains(&(preds[1].0, row[0]));
             eclasses[row[3] as usize].0.push((
-                format!("Φ"),
+                "Φ".to_string(),
                 vec![
                     (
                         row[1],

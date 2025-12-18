@@ -4,7 +4,6 @@ use core::hash::Hash;
 use core::marker::PhantomData;
 use core::mem::swap;
 use std::collections::HashMap;
-use std::i32;
 
 use ds::table::Value;
 use imp::term::{BinaryOp, BlockId, UnaryOp};
@@ -19,10 +18,7 @@ pub struct InternId<T> {
 
 impl<T> Clone for InternId<T> {
     fn clone(&self) -> Self {
-        Self {
-            id: self.id.clone(),
-            _phantom: self._phantom.clone(),
-        }
+        *self
     }
 }
 

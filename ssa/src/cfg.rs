@@ -54,7 +54,7 @@ fn po_helper(
     po.push(block);
 }
 
-pub fn back_edges(rpo: &Vec<BlockId>, cfg: &CFG) -> BTreeSet<(BlockId, BlockId)> {
+pub fn back_edges(rpo: &[BlockId], cfg: &CFG) -> BTreeSet<(BlockId, BlockId)> {
     let mut visited = BTreeSet::new();
     let mut back_edges = BTreeSet::new();
 
