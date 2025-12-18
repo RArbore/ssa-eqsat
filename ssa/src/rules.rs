@@ -7,7 +7,7 @@ use imp::term::{BinaryOp, BlockId, UnaryOp};
 
 use crate::cfg::cfg_canon;
 use crate::egraph::{Analyses, EGraph};
-use crate::lattices::Interval;
+use crate::lattices::{CouldBeZero, Interval};
 
 impl EGraph {
     fn rewrite1(&mut self) {
@@ -638,6 +638,33 @@ impl EGraph {
         }
     }
 
+    fn analysis15(&mut self) {
+        // <>(x), x = cbz => <>(cbz)
+        let mut merge = |a, b| (CouldBeZero::from(a) | CouldBeZero::from(b)).into();
+        for (row, _) in self.unary.rows() {
+            if let Some(cbz) = self.analyses.could_be_zero.get(&[row[1]]) {
+                let op = UnaryOp::n(row[0]).unwrap();
+                let result = CouldBeZero::from(cbz.unwrap()).forward_unary(op);
+                self.analyses.could_be_zero.insert(&[row[2], result.into()], &mut merge);
+            }
+        }
+    }
+
+    fn analysis16(&mut self) {
+        // <>(x, y), x = cbz1, y = cbz2 => <>(cbz1, cbz2)
+        let mut merge = |a, b| (CouldBeZero::from(a) | CouldBeZero::from(b)).into();
+        for (row, _) in self.binary.rows() {
+            if let (Some(lhs_cbz), Some(rhs_cbz)) = (
+                self.analyses.could_be_zero.get(&[row[1]]),
+                self.analyses.could_be_zero.get(&[row[2]]),
+            ) {
+                let op = BinaryOp::n(row[0]).unwrap();
+                let result = CouldBeZero::from(lhs_cbz.unwrap()).forward_binary(&CouldBeZero::from(rhs_cbz.unwrap()), op);
+                self.analyses.could_be_zero.insert(&[row[3], result.into()], &mut merge);
+            }
+        }
+    }
+
     pub fn optimistic_analysis(&mut self) {
         self.analyses = Analyses::new(self.uf.num_class_ids());
         loop {
@@ -658,6 +685,8 @@ impl EGraph {
                 self.analysis12(&old_analyses);
                 self.analysis13();
                 self.analysis14();
+                self.analysis15();
+                self.analysis16();
 
                 let changed1 = self.analyses.block_unreachability.check_changed();
                 let changed2 = self.analyses.edge_unreachability.check_changed();

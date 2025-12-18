@@ -3,6 +3,7 @@ use core::cmp::{max, min};
 use core::hash::Hash;
 use core::marker::PhantomData;
 use core::mem::swap;
+use core::ops::{BitAnd, BitOr};
 use std::collections::HashMap;
 
 use ds::table::Value;
@@ -274,6 +275,67 @@ impl Interner<Interval> {
             self.intern(self.get(a.into()).intersect(&self.get(b.into())))
                 .into()
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CouldBeZero {
+    pub(crate) maybe_zero: bool,
+}
+
+impl CouldBeZero {
+    pub fn top() -> CouldBeZero {
+        CouldBeZero { maybe_zero: true }
+    }
+
+    pub fn bottom() -> CouldBeZero {
+        CouldBeZero { maybe_zero: false }
+    }
+
+    pub fn forward_unary(&self, op: UnaryOp) -> CouldBeZero {
+        use UnaryOp::*;
+        match op {
+            Negate => *self,
+            Not => CouldBeZero::top(),
+        }
+    }
+
+    pub fn forward_binary(&self, _other: &CouldBeZero, op: BinaryOp) -> CouldBeZero {
+        CouldBeZero::top()
+    }
+}
+
+impl BitAnd for CouldBeZero {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        CouldBeZero {
+            maybe_zero: self.maybe_zero && rhs.maybe_zero,
+        }
+    }
+}
+
+impl BitOr for CouldBeZero {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        CouldBeZero {
+            maybe_zero: self.maybe_zero || rhs.maybe_zero,
+        }
+    }
+}
+
+impl From<Value> for CouldBeZero {
+    fn from(value: Value) -> Self {
+        CouldBeZero {
+            maybe_zero: value != 0,
+        }
+    }
+}
+
+impl From<CouldBeZero> for Value {
+    fn from(cbz: CouldBeZero) -> Self {
+        cbz.maybe_zero as Value
     }
 }
 

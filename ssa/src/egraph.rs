@@ -16,6 +16,7 @@ pub(crate) struct Analyses {
     pub(crate) block_unreachability: Table,
     pub(crate) edge_unreachability: Table,
     pub(crate) interval: Table,
+    pub(crate) could_be_zero: Table,
     pub(crate) offset: OptionalLabelledUnionFind<i32>,
 }
 
@@ -42,6 +43,7 @@ impl Analyses {
             block_unreachability: Table::new(1, true),
             edge_unreachability: Table::new(2, true),
             interval: Table::new(1, true),
+            could_be_zero: Table::new(1, true),
             offset: OptionalLabelledUnionFind::new_all_none(num_classes),
         }
     }
