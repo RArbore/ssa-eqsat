@@ -620,6 +620,24 @@ impl EGraph {
         }
     }
 
+    fn analysis14(&mut self) {
+        // y = [1, 1], y = not x => x = [0, 0]
+        let mut merge = self.interval_interner.merge();
+        for (unary, _) in self.unary.rows() {
+            if unary[0] == UnaryOp::Not as Value
+                && let Some(Some(interval)) = self.analyses.interval.get(&[unary[2]])
+                && (Interval { low: 1, high: 1 })
+                    .contains(&self.interval_interner.get(interval.into()))
+            {
+                let zero = self
+                    .interval_interner
+                    .intern(Interval { low: 0, high: 0 })
+                    .into();
+                self.analyses.interval.insert(&[unary[1], zero], &mut merge);
+            }
+        }
+    }
+
     pub fn optimistic_analysis(&mut self) {
         self.analyses = Analyses::new(self.uf.num_class_ids());
         loop {
@@ -639,6 +657,7 @@ impl EGraph {
                 self.analysis11();
                 self.analysis12(&old_analyses);
                 self.analysis13();
+                self.analysis14();
 
                 let changed1 = self.analyses.block_unreachability.check_changed();
                 let changed2 = self.analyses.edge_unreachability.check_changed();

@@ -51,52 +51,58 @@ Block: StatementAST = {
 
 Stmt: StatementAST = {
     Block => <>,
-    <i:Iden> "=" <e:Expr> ";" => {
+    <i:Iden> "=" <e:BinaryExpr> ";" => {
         StatementAST::Assign(interner.get_or_intern(i), e)
     },
-    "if" <c:Expr> <ts:Block> <fs:("else" <Block>)?> => {
+    "if" <c:BinaryExpr> <ts:Block> <fs:("else" <Block>)?> => {
         StatementAST::IfElse(c, Box::new(ts), fs.map(Box::new))
     },
-    "while" <c:Expr> <s:Block> => {
+    "while" <c:BinaryExpr> <s:Block> => {
         StatementAST::While(c, Box::new(s))
     },
-    "return" <e:Expr> ";" => {
+    "return" <e:BinaryExpr> ";" => {
         StatementAST::Return(e)
     },
 }
 
-Expr: ExpressionAST = {
+BinaryExpr: ExpressionAST = {
     #[precedence(level="0")]
-    Atomic,
+    UnaryExpr,
     #[precedence(level="1")] #[assoc(side="left")]
-    <lhs:Expr> "*" <rhs:Expr> => ExpressionAST::Multiply(Box::new(lhs), Box::new(rhs)),
-    <lhs:Expr> "/" <rhs:Expr> => ExpressionAST::Divide(Box::new(lhs), Box::new(rhs)),
-    <lhs:Expr> "%" <rhs:Expr> => ExpressionAST::Modulo(Box::new(lhs), Box::new(rhs)),
+    <lhs:BinaryExpr> "*" <rhs:BinaryExpr> => ExpressionAST::Multiply(Box::new(lhs), Box::new(rhs)),
+    <lhs:BinaryExpr> "/" <rhs:BinaryExpr> => ExpressionAST::Divide(Box::new(lhs), Box::new(rhs)),
+    <lhs:BinaryExpr> "%" <rhs:BinaryExpr> => ExpressionAST::Modulo(Box::new(lhs), Box::new(rhs)),
     #[precedence(level="2")] #[assoc(side="left")]
-    <lhs:Expr> "+" <rhs:Expr> => ExpressionAST::Add(Box::new(lhs), Box::new(rhs)),
-    <lhs:Expr> "-" <rhs:Expr> => ExpressionAST::Subtract(Box::new(lhs), Box::new(rhs)),
+    <lhs:BinaryExpr> "+" <rhs:BinaryExpr> => ExpressionAST::Add(Box::new(lhs), Box::new(rhs)),
+    <lhs:BinaryExpr> "-" <rhs:BinaryExpr> => ExpressionAST::Subtract(Box::new(lhs), Box::new(rhs)),
     #[precedence(level="3")] #[assoc(side="left")]
-    <lhs:Expr> "==" <rhs:Expr> => ExpressionAST::EqualsEquals(Box::new(lhs), Box::new(rhs)),
-    <lhs:Expr> "!=" <rhs:Expr> => ExpressionAST::NotEquals(Box::new(lhs), Box::new(rhs)),
-    <lhs:Expr> "<" <rhs:Expr> => ExpressionAST::Less(Box::new(lhs), Box::new(rhs)),
-    <lhs:Expr> "<=" <rhs:Expr> => ExpressionAST::LessEquals(Box::new(lhs), Box::new(rhs)),
-    <lhs:Expr> ">" <rhs:Expr> => ExpressionAST::Greater(Box::new(lhs), Box::new(rhs)),
-    <lhs:Expr> ">=" <rhs:Expr> => ExpressionAST::GreaterEquals(Box::new(lhs), Box::new(rhs)),
+    <lhs:BinaryExpr> "==" <rhs:BinaryExpr> => ExpressionAST::EqualsEquals(Box::new(lhs), Box::new(rhs)),
+    <lhs:BinaryExpr> "!=" <rhs:BinaryExpr> => ExpressionAST::NotEquals(Box::new(lhs), Box::new(rhs)),
+    <lhs:BinaryExpr> "<" <rhs:BinaryExpr> => ExpressionAST::Less(Box::new(lhs), Box::new(rhs)),
+    <lhs:BinaryExpr> "<=" <rhs:BinaryExpr> => ExpressionAST::LessEquals(Box::new(lhs), Box::new(rhs)),
+    <lhs:BinaryExpr> ">" <rhs:BinaryExpr> => ExpressionAST::Greater(Box::new(lhs), Box::new(rhs)),
+    <lhs:BinaryExpr> ">=" <rhs:BinaryExpr> => ExpressionAST::GreaterEquals(Box::new(lhs), Box::new(rhs)),
+}
+
+UnaryExpr: ExpressionAST = {
+    Atomic,
+    "!" <UnaryExpr> => ExpressionAST::Not(Box::new(<>)),
+    "-" <UnaryExpr> => ExpressionAST::Negate(Box::new(<>)),
 }
 
 Atomic: ExpressionAST = {
     Num => ExpressionAST::NumberLiteral(<>),
     Iden => ExpressionAST::Variable(interner.get_or_intern(<>)),
     <i:Iden> "(" <a:Args> ")" => ExpressionAST::Call(interner.get_or_intern(i), a),
-    "(" <Expr> ")",
+    "(" <BinaryExpr> ")",
 }
 
 Args: Vec<ExpressionAST> = {
     => Vec::new(),
-    <x:Expr> => {
+    <x:BinaryExpr> => {
         vec![x]
     },
-    <mut l:Args> "," <x:Expr?> => {
+    <mut l:Args> "," <x:BinaryExpr?> => {
         match x {
             None => l,
             Some(x) => { l.push(x); l }

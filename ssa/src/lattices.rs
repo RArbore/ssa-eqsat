@@ -123,6 +123,10 @@ impl Interval {
         }
     }
 
+    pub fn contains(&self, other: &Interval) -> bool {
+        self.low <= other.low && self.high >= other.high
+    }
+
     pub fn widen(&self, new: &Interval) -> Interval {
         Interval {
             low: if self.low > new.low {

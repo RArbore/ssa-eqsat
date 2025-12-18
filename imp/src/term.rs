@@ -284,6 +284,14 @@ impl<'a> Context<'a> {
                 let rhs = self.handle_expr(ssa, rhs);
                 ssa.add_term(Term::Binary(BinaryOp::GE, lhs, rhs))
             }
+            Not(value) => {
+                let value = self.handle_expr(ssa, value);
+                ssa.add_term(Term::Unary(UnaryOp::Not, value))
+            }
+            Negate(value) => {
+                let value = self.handle_expr(ssa, value);
+                ssa.add_term(Term::Unary(UnaryOp::Negate, value))
+            }
         }
     }
 }

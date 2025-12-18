@@ -45,4 +45,7 @@ pub enum ExpressionAST {
     LessEquals(Box<ExpressionAST>, Box<ExpressionAST>),
     Greater(Box<ExpressionAST>, Box<ExpressionAST>),
     GreaterEquals(Box<ExpressionAST>, Box<ExpressionAST>),
+
+    Not(Box<ExpressionAST>),
+    Negate(Box<ExpressionAST>),
 }
