@@ -2,11 +2,14 @@ use core::cell::RefCell;
 use core::cmp::{max, min};
 use core::hash::Hash;
 use core::marker::PhantomData;
+use core::mem::swap;
 use std::collections::HashMap;
 use std::i32;
 
 use ds::table::Value;
-use imp::term::{BinaryOp, UnaryOp};
+use imp::term::{BinaryOp, BlockId, UnaryOp};
+
+use crate::cfg::DomTree;
 
 #[derive(Debug)]
 pub struct InternId<T> {
@@ -270,6 +273,80 @@ impl Interner<Interval> {
         |a: Value, b: Value| {
             self.intern(self.get(a.into()).intersect(&self.get(b.into())))
                 .into()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DomCtx {
+    Block(BlockId),
+    Bottom,
+}
+
+impl DomCtx {
+    pub fn top() -> DomCtx {
+        DomCtx::Block(0)
+    }
+
+    pub fn bottom() -> DomCtx {
+        DomCtx::Bottom
+    }
+
+    pub fn meet(&self, other: &DomCtx, dom: &DomTree) -> DomCtx {
+        let (DomCtx::Block(mut orig_a), DomCtx::Block(mut orig_b)) = (*self, *other) else {
+            return DomCtx::Bottom;
+        };
+        if dom.level[&orig_a] > dom.level[&orig_b] {
+            swap(&mut orig_a, &mut orig_b);
+        }
+
+        let mut a = orig_a;
+        while dom.level[&a] < dom.level[&orig_b] {
+            a = dom.idom[&a];
+        }
+
+        if a == orig_b {
+            DomCtx::Block(orig_a)
+        } else {
+            DomCtx::Bottom
+        }
+    }
+
+    pub fn join(&self, other: &DomCtx, dom: &DomTree) -> DomCtx {
+        match (*self, *other) {
+            (DomCtx::Bottom, ctx) | (ctx, DomCtx::Bottom) => ctx,
+            (DomCtx::Block(mut a), DomCtx::Block(mut b)) => {
+                while dom.level[&a] < dom.level[&b] {
+                    a = dom.idom[&a];
+                }
+                while dom.level[&a] > dom.level[&b] {
+                    b = dom.idom[&b];
+                }
+                while a != b {
+                    a = dom.idom[&a];
+                    b = dom.idom[&b];
+                }
+                DomCtx::Block(a)
+            }
+        }
+    }
+}
+
+impl From<Value> for DomCtx {
+    fn from(value: Value) -> Self {
+        if value == Value::MAX {
+            DomCtx::Bottom
+        } else {
+            DomCtx::Block(value)
+        }
+    }
+}
+
+impl From<DomCtx> for Value {
+    fn from(ctx: DomCtx) -> Self {
+        match ctx {
+            DomCtx::Block(value) => value,
+            DomCtx::Bottom => Value::MAX,
         }
     }
 }

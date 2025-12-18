@@ -71,7 +71,10 @@ pub fn back_edges(rpo: &Vec<BlockId>, cfg: &CFG) -> BTreeSet<(BlockId, BlockId)>
     back_edges
 }
 
-pub type DomTree = BTreeMap<BlockId, BlockId>;
+pub struct DomTree {
+    pub idom: BTreeMap<BlockId, BlockId>,
+    pub level: BTreeMap<BlockId, u32>,
+}
 
 pub fn dominator(cfg: &CFG) -> DomTree {
     let mut succs: BTreeMap<BlockId, Vec<BlockId>> = BTreeMap::new();
@@ -130,7 +133,17 @@ pub fn dominator(cfg: &CFG) -> DomTree {
         }
     }
 
-    idom
+    let mut level = BTreeMap::new();
+    level.insert(0, 0);
+    while level.len() != preorder.len() {
+        for (block, idom) in &idom {
+            if let Some(idom_level) = level.get(idom) {
+                level.insert(*block, idom_level + 1);
+            }
+        }
+    }
+
+    DomTree { idom, level }
 }
 
 fn semi_nca_compress(block_num: usize, ancestors: &mut Vec<usize>, labels: &mut Vec<usize>) {
