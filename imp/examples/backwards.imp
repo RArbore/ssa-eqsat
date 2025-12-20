@@ -1,3 +1,14 @@
+fn cbz_example(x) {
+    a = 5;
+    b = -3;
+    if x {
+        c = a;
+    } else {
+        c = b;
+    }
+    return c;
+}
+
 fn not(x) {
     if x {
         y = !x;
