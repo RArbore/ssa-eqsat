@@ -9,7 +9,7 @@ use ds::uf::{ClassId, OptionalLabelledUnionFind, UnionFind};
 use imp::term::{BinaryOp, BlockId, SSA, Term, UnaryOp};
 
 use crate::cfg::{CFG, back_edges, rpo};
-use crate::lattices::{Interner, Interval};
+use crate::lattices::{CouldBeZero, Interner, Interval};
 
 #[derive(Debug)]
 pub(crate) struct Analyses {
@@ -125,8 +125,11 @@ impl EGraph {
     }
 
     pub fn to_dot<W: Write>(&self, w: &mut W) -> Result<()> {
-        let mut eclasses: Vec<(Vec<(String, Vec<(Value, String)>)>, Option<Interval>)> =
-            vec![(vec![], None); self.uf.num_class_ids() as usize];
+        let mut eclasses: Vec<(
+            Vec<(String, Vec<(Value, String)>)>,
+            Option<Interval>,
+            Option<CouldBeZero>,
+        )> = vec![(vec![], None, None); self.uf.num_class_ids() as usize];
 
         for (row, _) in self.constant.rows() {
             eclasses[row[1] as usize]
@@ -195,6 +198,10 @@ impl EGraph {
             eclasses[row[0] as usize].1 = Some(self.interval_interner.get(row[1].into()));
         }
 
+        for (row, _) in self.analyses.could_be_zero.rows() {
+            eclasses[row[0] as usize].2 = Some(row[1].into());
+        }
+
         writeln!(w, "digraph EGraph {{")?;
         writeln!(w, "compound=true;")?;
         writeln!(w, "rank=same;")?;
@@ -207,12 +214,20 @@ impl EGraph {
                 writeln!(w, "N{}_{}[label=\"{}\"];", eclass_idx, enode_idx, enode.0)?;
             }
             writeln!(w, "}}")?;
-            if let Some(interval) = eclass.1 {
+            if let (Some(interval), Some(cbz)) = (eclass.1, eclass.2) {
+                writeln!(
+                    w,
+                    "label=\"{}: [{}, {}], {:?}\";",
+                    eclass_idx, interval.low, interval.high, cbz
+                )?;
+            } else if let (Some(interval), None) = (eclass.1, eclass.2) {
                 writeln!(
                     w,
                     "label=\"{}: [{}, {}]\";",
                     eclass_idx, interval.low, interval.high
                 )?;
+            } else if let (None, Some(cbz)) = (eclass.1, eclass.2) {
+                writeln!(w, "label=\"{}: {:?}\";", eclass_idx, cbz)?;
             } else {
                 writeln!(w, "label=\"{}\";", eclass_idx)?;
             }

@@ -621,19 +621,25 @@ impl EGraph {
     }
 
     fn analysis14(&mut self) {
-        // y = [1, 1], y = not x => x = [0, 0]
-        let mut merge = self.interval_interner.merge();
-        for (unary, _) in self.unary.rows() {
-            if unary[0] == UnaryOp::Not as Value
-                && let Some(Some(interval)) = self.analyses.interval.get(&[unary[2]])
-                && (Interval { low: 1, high: 1 })
-                    .contains(&self.interval_interner.get(interval.into()))
-            {
-                let zero = self
-                    .interval_interner
-                    .intern(Interval { low: 0, high: 0 })
-                    .into();
-                self.analyses.interval.insert(&[unary[1], zero], &mut merge);
+        // y = [0, 0] => y is zero
+        // y = [a, b], a > 0 => y is not zero
+        // y = [a, b], b < 0 => y is not zero
+        // y is zero => y = [0, 0]
+        let mut interval_merge = self.interval_interner.merge();
+        let mut cbz_merge = |a, b| (CouldBeZero::from(a).meet(&CouldBeZero::from(b))).into();
+
+        for (row, _) in self.analyses.interval.rows() {
+            let interval = self.interval_interner.get(row[1].into());
+            if interval.try_constant() == Some(0) {
+                self.analyses.could_be_zero.insert(&[row[0], CouldBeZero::Zero.into()], &mut cbz_merge);
+            } else if interval.low > 0 || interval.high < 0 {
+                self.analyses.could_be_zero.insert(&[row[0], CouldBeZero::NotZero.into()], &mut cbz_merge);
+            }
+        }
+
+        for (row, _) in self.analyses.could_be_zero.rows() {
+            if CouldBeZero::Zero == row[1].into() {
+                self.analyses.interval.insert(&[row[0], self.interval_interner.intern(Interval { low: 0, high: 0 }).into()], &mut interval_merge);
             }
         }
     }
@@ -691,8 +697,9 @@ impl EGraph {
                 let changed1 = self.analyses.block_unreachability.check_changed();
                 let changed2 = self.analyses.edge_unreachability.check_changed();
                 let changed3 = self.analyses.interval.check_changed();
-                let changed4 = self.analyses.offset.check_changed();
-                if !changed1 && !changed2 && !changed3 && !changed4 {
+                let changed4 = self.analyses.could_be_zero.check_changed();
+                let changed5 = self.analyses.offset.check_changed();
+                if !changed1 && !changed2 && !changed3 && !changed4 && !changed5 {
                     break;
                 }
             }
@@ -736,6 +743,13 @@ impl EGraph {
             dst.push(row[1]);
             root != row[0]
         };
+        let mut cbz_merge = |a, b| (CouldBeZero::from(a).meet(&CouldBeZero::from(b))).into();
+        let mut cbz_canon = |row: &[Value], dst: &mut Vec<Value>| {
+            let root = self.uf.find(row[0].into()).into();
+            dst.push(root);
+            dst.push(row[1]);
+            root != row[0]
+        };
 
         let mut ever_changed = false;
         loop {
@@ -749,6 +763,11 @@ impl EGraph {
                 .analyses
                 .interval
                 .rebuild(&mut interval_merge, &mut interval_canon)
+                || changed;
+            changed = self
+                .analyses
+                .could_be_zero
+                .rebuild(&mut cbz_merge, &mut cbz_canon)
                 || changed;
             self.analyses.offset.canon(&self.uf);
             cfg_canon(&mut self.cfg, &self.uf);
