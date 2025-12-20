@@ -640,7 +640,7 @@ impl EGraph {
 
     fn analysis15(&mut self) {
         // <>(x), x = cbz => <>(cbz)
-        let mut merge = |a, b| (CouldBeZero::from(a) | CouldBeZero::from(b)).into();
+        let mut merge = |a, b| (CouldBeZero::from(a).meet(&CouldBeZero::from(b))).into();
         for (row, _) in self.unary.rows() {
             if let Some(cbz) = self.analyses.could_be_zero.get(&[row[1]]) {
                 let op = UnaryOp::n(row[0]).unwrap();
@@ -652,7 +652,7 @@ impl EGraph {
 
     fn analysis16(&mut self) {
         // <>(x, y), x = cbz1, y = cbz2 => <>(cbz1, cbz2)
-        let mut merge = |a, b| (CouldBeZero::from(a) | CouldBeZero::from(b)).into();
+        let mut merge = |a, b| (CouldBeZero::from(a).meet(&CouldBeZero::from(b))).into();
         for (row, _) in self.binary.rows() {
             if let (Some(lhs_cbz), Some(rhs_cbz)) = (
                 self.analyses.could_be_zero.get(&[row[1]]),

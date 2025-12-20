@@ -3,7 +3,6 @@ use core::cmp::{max, min};
 use core::hash::Hash;
 use core::marker::PhantomData;
 use core::mem::swap;
-use core::ops::{BitAnd, BitOr};
 use std::collections::HashMap;
 
 use ds::table::Value;
@@ -204,8 +203,7 @@ impl Interval {
                     ),
                 ),
             }),
-            Div => todo!(),
-            Rem => todo!(),
+            Div | Rem => None,
             EE => Some({
                 if let (Some(cons1), Some(cons2)) = (self.try_constant(), other.try_constant())
                     && cons1 == cons2
@@ -278,64 +276,111 @@ impl Interner<Interval> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CouldBeZero {
-    pub(crate) maybe_zero: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CouldBeZero {
+    Top,
+    Zero,
+    NotZero,
+    Bottom,
 }
 
 impl CouldBeZero {
     pub fn top() -> CouldBeZero {
-        CouldBeZero { maybe_zero: true }
+        CouldBeZero::Top
     }
 
     pub fn bottom() -> CouldBeZero {
-        CouldBeZero { maybe_zero: false }
+        CouldBeZero::Bottom
+    }
+
+    pub fn meet(&self, other: &CouldBeZero) -> CouldBeZero {
+        use CouldBeZero::*;
+        match (*self, *other) {
+            (Bottom, _) | (_, Bottom) => Bottom,
+            (Top, other) | (other, Top) => other,
+            _ if *self == *other => *self,
+            _ => Bottom,
+        }
+    }
+
+    pub fn join(&self, other: &CouldBeZero) -> CouldBeZero {
+        use CouldBeZero::*;
+        match (*self, *other) {
+            (Top, _) | (_, Top) => Top,
+            (Bottom, other) | (other, Bottom) => other,
+            _ if *self == *other => *self,
+            _ => Top,
+        }
     }
 
     pub fn forward_unary(&self, op: UnaryOp) -> CouldBeZero {
+        use CouldBeZero::*;
         use UnaryOp::*;
         match op {
             Negate => *self,
-            Not => CouldBeZero::top(),
+            Not => match *self {
+                Top | Bottom => *self,
+                Zero => NotZero,
+                NotZero => Zero,
+            },
         }
     }
 
-    pub fn forward_binary(&self, _other: &CouldBeZero, op: BinaryOp) -> CouldBeZero {
-        CouldBeZero::top()
-    }
-}
-
-impl BitAnd for CouldBeZero {
-    type Output = Self;
-
-    fn bitand(self, rhs: Self) -> Self {
-        CouldBeZero {
-            maybe_zero: self.maybe_zero && rhs.maybe_zero,
-        }
-    }
-}
-
-impl BitOr for CouldBeZero {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self {
-        CouldBeZero {
-            maybe_zero: self.maybe_zero || rhs.maybe_zero,
+    pub fn forward_binary(&self, other: &CouldBeZero, op: BinaryOp) -> CouldBeZero {
+        use BinaryOp::*;
+        use CouldBeZero::*;
+        match op {
+            Add | Sub => match (*self, *other) {
+                (Bottom, _) | (_, Bottom) => Bottom,
+                (Zero, other) | (other, Zero) => other,
+                _ => Top,
+            },
+            Mul => match (*self, *other) {
+                (Zero, _) | (_, Zero) => Zero,
+                (Bottom, _) | (_, Bottom) => Bottom,
+                _ => Top,
+            },
+            Div | Rem => Top,
+            EE => match (*self, *other) {
+                (Bottom, _) | (_, Bottom) => Bottom,
+                (Top, _) | (_, Top) => Top,
+                _ if *self == *other => NotZero,
+                _ => Zero,
+            },
+            NE => match (*self, *other) {
+                (Bottom, _) | (_, Bottom) => Bottom,
+                (Top, _) | (_, Top) => Top,
+                _ if *self != *other => NotZero,
+                _ => Zero,
+            },
+            LT | LE | GT | GE => match (*self, *other) {
+                (Bottom, _) | (_, Bottom) => Bottom,
+                _ => Top,
+            },
         }
     }
 }
 
 impl From<Value> for CouldBeZero {
     fn from(value: Value) -> Self {
-        CouldBeZero {
-            maybe_zero: value != 0,
+        match value {
+            0 => CouldBeZero::Top,
+            1 => CouldBeZero::Zero,
+            2 => CouldBeZero::NotZero,
+            3 => CouldBeZero::Bottom,
+            _ => panic!(),
         }
     }
 }
 
 impl From<CouldBeZero> for Value {
     fn from(cbz: CouldBeZero) -> Self {
-        cbz.maybe_zero as Value
+        match cbz {
+            CouldBeZero::Top => 0,
+            CouldBeZero::Zero => 1,
+            CouldBeZero::NotZero => 2,
+            CouldBeZero::Bottom => 3,
+        }
     }
 }
 
