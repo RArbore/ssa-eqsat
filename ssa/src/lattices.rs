@@ -90,8 +90,8 @@ impl<T: Clone + PartialEq + Eq + Hash> Interner<T> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Interval {
-    pub(crate) low: i32,
-    pub(crate) high: i32,
+    pub low: i32,
+    pub high: i32,
 }
 
 impl Interval {

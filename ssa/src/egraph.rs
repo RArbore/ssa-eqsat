@@ -12,33 +12,33 @@ use crate::cfg::{CFG, back_edges, rpo};
 use crate::lattices::{CouldBeZero, Interner, Interval};
 
 #[derive(Debug)]
-pub(crate) struct Analyses {
-    pub(crate) block_unreachability: Table,
-    pub(crate) edge_unreachability: Table,
-    pub(crate) interval: Table,
-    pub(crate) could_be_zero: Table,
-    pub(crate) offset: OptionalLabelledUnionFind<i32>,
+pub struct Analyses {
+    pub block_unreachability: Table,
+    pub edge_unreachability: Table,
+    pub interval: Table,
+    pub could_be_zero: Table,
+    pub offset: OptionalLabelledUnionFind<i32>,
 }
 
 #[derive(Debug)]
 pub struct EGraph {
-    pub(crate) constant: Table,
-    pub(crate) param: Table,
-    pub(crate) phi: Table,
-    pub(crate) unary: Table,
-    pub(crate) binary: Table,
+    pub constant: Table,
+    pub param: Table,
+    pub phi: Table,
+    pub unary: Table,
+    pub binary: Table,
 
-    pub(crate) analyses: Analyses,
+    pub analyses: Analyses,
 
-    pub(crate) uf: UnionFind,
-    pub(crate) interval_interner: Interner<Interval>,
+    pub uf: UnionFind,
+    pub interval_interner: Interner<Interval>,
 
-    pub(crate) cfg: CFG,
-    pub(crate) back_edges: BTreeSet<(BlockId, BlockId)>,
+    pub cfg: CFG,
+    pub back_edges: BTreeSet<(BlockId, BlockId)>,
 }
 
 impl Analyses {
-    pub(crate) fn new(num_classes: u32) -> Self {
+    pub fn new(num_classes: u32) -> Self {
         Analyses {
             block_unreachability: Table::new(1, true),
             edge_unreachability: Table::new(2, true),
@@ -48,7 +48,7 @@ impl Analyses {
         }
     }
 
-    pub(crate) fn changed(&self, other: &Self) -> bool {
+    pub fn changed(&self, other: &Self) -> bool {
         let changed_table_map = |old: &Table, new: &Table| {
             for (row, dep, _) in new.split_rows() {
                 if old.get(row) != Some(Some(dep)) {
