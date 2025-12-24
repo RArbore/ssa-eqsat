@@ -9,7 +9,7 @@ use ds::uf::{ClassId, OptionalLabelledUnionFind, UnionFind};
 use imp::term::{BinaryOp, BlockId, SSA, Term, UnaryOp};
 
 use crate::cfg::{CFG, back_edges, rpo};
-use crate::lattices::{CouldBeZero, Interner, Interval};
+use crate::lattices::{CouldBeZero, DomCtx, Interner, Interval};
 
 #[derive(Debug)]
 pub struct Analyses {
@@ -42,8 +42,8 @@ impl Analyses {
         Analyses {
             block_unreachability: Table::new(1, true),
             edge_unreachability: Table::new(2, true),
-            interval: Table::new(1, true),
-            could_be_zero: Table::new(1, true),
+            interval: Table::new(2, true),
+            could_be_zero: Table::new(2, true),
             offset: OptionalLabelledUnionFind::new_all_none(num_classes),
         }
     }
@@ -195,11 +195,15 @@ impl EGraph {
         }
 
         for (row, _) in self.analyses.interval.rows() {
-            eclasses[row[0] as usize].1 = Some(self.interval_interner.get(row[1].into()));
+            if DomCtx::from(row[1]).is_top() {
+                eclasses[row[0] as usize].1 = Some(self.interval_interner.get(row[2].into()));
+            }
         }
 
         for (row, _) in self.analyses.could_be_zero.rows() {
-            eclasses[row[0] as usize].2 = Some(row[1].into());
+            if DomCtx::from(row[1]).is_top() {
+                eclasses[row[0] as usize].2 = Some(row[2].into());
+            }
         }
 
         writeln!(w, "digraph EGraph {{")?;

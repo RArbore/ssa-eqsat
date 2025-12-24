@@ -399,6 +399,14 @@ impl DomCtx {
         DomCtx::Bottom
     }
 
+    pub fn is_top(&self) -> bool {
+        *self == DomCtx::top()
+    }
+
+    pub fn is_bottom(&self) -> bool {
+        *self == DomCtx::bottom()
+    }
+
     pub fn meet(&self, other: &DomCtx, dom: &DomTree) -> DomCtx {
         let (DomCtx::Block(mut orig_a), DomCtx::Block(mut orig_b)) = (*self, *other) else {
             return DomCtx::Bottom;
