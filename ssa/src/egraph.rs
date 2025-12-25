@@ -8,7 +8,7 @@ use ds::table::{Table, Value};
 use ds::uf::{ClassId, OptionalLabelledUnionFind, UnionFind};
 use imp::term::{BinaryOp, BlockId, SSA, Term, UnaryOp};
 
-use crate::cfg::{CFG, back_edges, rpo};
+use crate::cfg::{CFG, DomTree, back_edges, dominator, rpo};
 use crate::lattices::{CouldBeZero, DomCtx, Interner, Interval};
 
 #[derive(Debug)]
@@ -35,6 +35,7 @@ pub struct EGraph {
 
     pub cfg: CFG,
     pub back_edges: BTreeSet<(BlockId, BlockId)>,
+    pub dom: DomTree,
 }
 
 impl Analyses {
@@ -82,6 +83,7 @@ impl EGraph {
             .collect();
 
         let back_edges = back_edges(&rpo(&cfg), &cfg);
+        let dom = dominator(&cfg);
         let mut egraph = EGraph {
             constant: Table::new(1, true),
             param: Table::new(1, true),
@@ -93,6 +95,7 @@ impl EGraph {
             interval_interner: Interner::new(),
             cfg,
             back_edges,
+            dom,
         };
         let mut merge =
             |a: Value, b: Value| -> Value { egraph.uf.merge(a.into(), b.into()).into() };

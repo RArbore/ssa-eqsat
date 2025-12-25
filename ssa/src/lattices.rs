@@ -407,6 +407,10 @@ impl DomCtx {
         *self == DomCtx::bottom()
     }
 
+    pub fn leq(&self, other: &DomCtx, dom: &DomTree) -> bool {
+        self.meet(other, dom) == *self
+    }
+
     pub fn meet(&self, other: &DomCtx, dom: &DomTree) -> DomCtx {
         let (DomCtx::Block(mut orig_a), DomCtx::Block(mut orig_b)) = (*self, *other) else {
             return DomCtx::Bottom;

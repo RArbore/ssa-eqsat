@@ -71,6 +71,7 @@ pub fn back_edges(rpo: &[BlockId], cfg: &CFG) -> BTreeSet<(BlockId, BlockId)> {
     back_edges
 }
 
+#[derive(Debug)]
 pub struct DomTree {
     pub idom: BTreeMap<BlockId, BlockId>,
     pub level: BTreeMap<BlockId, u32>,

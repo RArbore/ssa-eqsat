@@ -2,7 +2,7 @@ use core::cmp::max;
 use core::mem::replace;
 
 use ds::table::{Table, Value};
-use ds::uf::{OptionalLabelledUnionFind, OptionalQueryResult};
+use ds::uf::{ClassId, OptionalLabelledUnionFind, OptionalQueryResult};
 use imp::term::{BinaryOp, BlockId, UnaryOp};
 
 use crate::cfg::cfg_canon;
@@ -924,5 +924,43 @@ impl EGraph {
                 break;
             }
         }
+    }
+
+    fn get_contextual_interval(
+        &self,
+        root: ClassId,
+        interval: &Table,
+        ctx: DomCtx,
+    ) -> Option<Interval> {
+        let mut result = None;
+        for (row, _) in interval.rows() {
+            if root == row[0].into() && ctx.leq(&row[1].into(), &self.dom) {
+                result = Some(
+                    result
+                        .unwrap_or(Interval::top())
+                        .intersect(&self.interval_interner.get(row[2].into())),
+                );
+            }
+        }
+        result
+    }
+
+    fn get_contextual_could_be_zero(
+        &self,
+        root: ClassId,
+        could_be_zero: &Table,
+        ctx: DomCtx,
+    ) -> Option<CouldBeZero> {
+        let mut result = None;
+        for (row, _) in could_be_zero.rows() {
+            if root == row[0].into() && ctx.leq(&row[1].into(), &self.dom) {
+                result = Some(
+                    result
+                        .unwrap_or(CouldBeZero::top())
+                        .meet(&row[2].into()),
+                );
+            }
+        }
+        result
     }
 }
