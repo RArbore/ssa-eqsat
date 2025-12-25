@@ -300,12 +300,9 @@ impl EGraph {
                 if pred_unreachability == Some(Some(1))
                     || self
                         .analyses
-                        .interval
+                        .could_be_zero
                         .get(&[(*cond).into(), DomCtx::top().into()])
-                        .map(|id| {
-                            self.interval_interner.get(id.unwrap().into())
-                                == Interval { low: 0, high: 0 }
-                        })
+                        .map(|cbz| CouldBeZero::Zero == cbz.unwrap().into())
                         .unwrap_or(false)
                 {
                     self.analyses
@@ -349,9 +346,10 @@ impl EGraph {
                 &[row[1], DomCtx::top().into(), interval],
                 &mut interval_merge,
             );
-            self.analyses
-                .could_be_zero
-                .insert(&[row[1], DomCtx::top().into(), CouldBeZero::Top.into()], &mut cbz_merge);
+            self.analyses.could_be_zero.insert(
+                &[row[1], DomCtx::top().into(), CouldBeZero::Top.into()],
+                &mut cbz_merge,
+            );
         }
     }
 
@@ -684,7 +682,11 @@ impl EGraph {
         // <>(x), x = cbz => <>(cbz)
         let mut merge = |a, b| (CouldBeZero::from(a).meet(&CouldBeZero::from(b))).into();
         for (row, _) in self.unary.rows() {
-            if let Some(cbz) = self.analyses.could_be_zero.get(&[row[1], DomCtx::top().into()]) {
+            if let Some(cbz) = self
+                .analyses
+                .could_be_zero
+                .get(&[row[1], DomCtx::top().into()])
+            {
                 let op = UnaryOp::n(row[0]).unwrap();
                 let result = CouldBeZero::from(cbz.unwrap()).forward_unary(op);
                 self.analyses
@@ -699,8 +701,12 @@ impl EGraph {
         let mut merge = |a, b| (CouldBeZero::from(a).meet(&CouldBeZero::from(b))).into();
         for (row, _) in self.binary.rows() {
             if let (Some(lhs_cbz), Some(rhs_cbz)) = (
-                self.analyses.could_be_zero.get(&[row[1], DomCtx::top().into()]),
-                self.analyses.could_be_zero.get(&[row[2], DomCtx::top().into()]),
+                self.analyses
+                    .could_be_zero
+                    .get(&[row[1], DomCtx::top().into()]),
+                self.analyses
+                    .could_be_zero
+                    .get(&[row[2], DomCtx::top().into()]),
             ) {
                 let op = BinaryOp::n(row[0]).unwrap();
                 let result = CouldBeZero::from(lhs_cbz.unwrap())
@@ -724,7 +730,9 @@ impl EGraph {
                 let unreachable = unreachable.unwrap() == 1;
                 if !unreachable
                     && is_back_edge
-                    && let Some(old_cbz) = old_analyses.could_be_zero.get(&[input, DomCtx::top().into()])
+                    && let Some(old_cbz) = old_analyses
+                        .could_be_zero
+                        .get(&[input, DomCtx::top().into()])
                 {
                     Some(old_cbz.unwrap().into())
                 } else if unreachable || is_back_edge {
@@ -750,9 +758,10 @@ impl EGraph {
             else {
                 continue;
             };
-            self.analyses
-                .could_be_zero
-                .insert(&[row[3], DomCtx::top().into(), lhs_cbz.join(&rhs_cbz).into()], &mut merge);
+            self.analyses.could_be_zero.insert(
+                &[row[3], DomCtx::top().into(), lhs_cbz.join(&rhs_cbz).into()],
+                &mut merge,
+            );
         }
     }
 
