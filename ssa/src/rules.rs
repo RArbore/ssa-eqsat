@@ -380,22 +380,26 @@ impl EGraph {
     fn analysis6(&mut self) {
         // <>(x, y), x = [a, b], y = [c, d] => <>([a, b], [c, d])
         let mut merge = self.interval_interner.merge();
-        for (row, _) in self.binary.rows() {
-            if let (Some(lhs_interval), Some(rhs_interval)) = (
-                self.analyses.interval.get(&[row[1], DomCtx::top().into()]),
-                self.analyses.interval.get(&[row[2], DomCtx::top().into()]),
-            ) {
-                let op = BinaryOp::n(row[0]).unwrap();
-                let lhs_interval = self.interval_interner.get(lhs_interval.unwrap().into());
-                let rhs_interval = self.interval_interner.get(rhs_interval.unwrap().into());
-                let result = self
-                    .interval_interner
-                    .intern(lhs_interval.forward_binary(&rhs_interval, op))
-                    .into();
-                self.analyses
-                    .interval
-                    .insert(&[row[3], DomCtx::top().into(), result], &mut merge);
+        let mut matches = vec![];
+        for (binary, _) in self.binary.rows() {
+            for (interval1, _) in self.analyses.interval.rows() {
+                for (interval2, _) in self.analyses.interval.rows() {
+                    if interval1[0] == binary[1] && interval2[0] == binary[2] {
+                        let op = BinaryOp::n(binary[0]).unwrap();
+                        let ctx = DomCtx::from(interval1[1]).meet(&DomCtx::from(interval2[1]), &self.dom);
+                        let interval1 = self.interval_interner.get(interval1[2].into());
+                        let interval2 = self.interval_interner.get(interval2[2].into());
+                        let result = self
+                            .interval_interner
+                            .intern(interval1.forward_binary(&interval2, op))
+                            .into();
+                        matches.push([binary[3], ctx.into(), result]);
+                    }
+                }
             }
+        }
+        for m in matches {
+            self.analyses.interval.insert(&m, &mut merge);
         }
     }
 
