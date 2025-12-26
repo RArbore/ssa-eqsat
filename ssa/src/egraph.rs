@@ -132,9 +132,9 @@ impl EGraph {
     pub fn to_dot<W: Write>(&self, w: &mut W) -> Result<()> {
         let mut eclasses: Vec<(
             Vec<(String, Vec<(Value, String)>)>,
-            Option<Interval>,
-            Option<CouldBeZero>,
-        )> = vec![(vec![], None, None); self.uf.num_class_ids() as usize];
+            Vec<(BlockId, Interval)>,
+            Vec<(BlockId, CouldBeZero)>,
+        )> = vec![(vec![], vec![], vec![]); self.uf.num_class_ids() as usize];
 
         for (row, _) in self.constant.rows() {
             eclasses[row[1] as usize]
@@ -200,14 +200,16 @@ impl EGraph {
         }
 
         for (row, _) in self.analyses.interval.rows() {
-            if DomCtx::from(row[1]).is_top() {
-                eclasses[row[0] as usize].1 = Some(self.interval_interner.get(row[2].into()));
+            if let Some(block) = DomCtx::from(row[1]).try_block() {
+                eclasses[row[0] as usize]
+                    .1
+                    .push((block, self.interval_interner.get(row[2].into())));
             }
         }
 
         for (row, _) in self.analyses.could_be_zero.rows() {
-            if DomCtx::from(row[1]).is_top() {
-                eclasses[row[0] as usize].2 = Some(row[2].into());
+            if let Some(block) = DomCtx::from(row[1]).try_block() {
+                eclasses[row[0] as usize].2.push((block, row[2].into()));
             }
         }
 
@@ -223,23 +225,14 @@ impl EGraph {
                 writeln!(w, "N{}_{}[label=\"{}\"];", eclass_idx, enode_idx, enode.0)?;
             }
             writeln!(w, "}}")?;
-            if let (Some(interval), Some(cbz)) = (eclass.1, eclass.2) {
-                writeln!(
-                    w,
-                    "label=\"{}: [{}, {}], {:?}\";",
-                    eclass_idx, interval.low, interval.high, cbz
-                )?;
-            } else if let (Some(interval), None) = (eclass.1, eclass.2) {
-                writeln!(
-                    w,
-                    "label=\"{}: [{}, {}]\";",
-                    eclass_idx, interval.low, interval.high
-                )?;
-            } else if let (None, Some(cbz)) = (eclass.1, eclass.2) {
-                writeln!(w, "label=\"{}: {:?}\";", eclass_idx, cbz)?;
-            } else {
-                writeln!(w, "label=\"{}\";", eclass_idx)?;
+            write!(w, "label=\"{}", eclass_idx)?;
+            for (block, interval) in &eclass.1 {
+                write!(w, ", BB{}: [{}, {}]", block, interval.low, interval.high)?;
             }
+            for (block, cbz) in &eclass.2 {
+                write!(w, ", BB{}: {:?}", block, cbz)?;
+            }
+            writeln!(w, "\";")?;
             writeln!(w, "cluster=true;")?;
             writeln!(w, "}}")?;
             writeln!(w, "style=invis;")?;

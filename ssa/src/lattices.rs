@@ -420,6 +420,14 @@ impl DomCtx {
         *self == DomCtx::bottom()
     }
 
+    pub fn try_block(&self) -> Option<BlockId> {
+        use DomCtx::*;
+        match self {
+            Block(id) => Some(*id),
+            Bottom => None
+        }
+    }
+
     pub fn leq(&self, other: &DomCtx, dom: &DomTree) -> bool {
         self.meet(other, dom) == *self
     }

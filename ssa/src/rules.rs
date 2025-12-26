@@ -799,7 +799,7 @@ impl EGraph {
                 continue;
             };
             self.analyses.could_be_zero.insert(
-                &[row[3], DomCtx::top().into(), lhs_cbz.join(&rhs_cbz).into()],
+                &[row[3], DomCtx::Block(block).into(), lhs_cbz.join(&rhs_cbz).into()],
                 &mut merge,
             );
         }
