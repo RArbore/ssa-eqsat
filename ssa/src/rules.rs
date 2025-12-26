@@ -254,6 +254,22 @@ impl EGraph {
         }
     }
 
+    fn add_flow_sensitive_results(&mut self) {
+        let mut merge = |a, b| (CouldBeZero::from(a).meet(&CouldBeZero::from(b))).into();
+        for (block, preds) in &self.cfg {
+            if preds.len() == 1 {
+                self.analyses.could_be_zero.insert(
+                    &[
+                        preds[0].1.into(),
+                        DomCtx::Block(*block).into(),
+                        CouldBeZero::NotZero.into(),
+                    ],
+                    &mut merge,
+                );
+            }
+        }
+    }
+
     fn analysis1(&mut self, old_analyses: &Analyses) {
         // Block reachability
         let mut merge = |a, b| max(a, b);
@@ -386,7 +402,8 @@ impl EGraph {
                 for (interval2, _) in self.analyses.interval.rows() {
                     if interval1[0] == binary[1] && interval2[0] == binary[2] {
                         let op = BinaryOp::n(binary[0]).unwrap();
-                        let ctx = DomCtx::from(interval1[1]).meet(&DomCtx::from(interval2[1]), &self.dom);
+                        let ctx =
+                            DomCtx::from(interval1[1]).meet(&DomCtx::from(interval2[1]), &self.dom);
                         let interval1 = self.interval_interner.get(interval1[2].into());
                         let interval2 = self.interval_interner.get(interval2[2].into());
                         let result = self
@@ -691,81 +708,94 @@ impl EGraph {
     fn analysis15(&mut self) {
         // <>(x), x = cbz => <>(cbz)
         let mut merge = |a, b| (CouldBeZero::from(a).meet(&CouldBeZero::from(b))).into();
-        for (row, _) in self.unary.rows() {
-            if let Some(cbz) = self
-                .analyses
-                .could_be_zero
-                .get(&[row[1], DomCtx::top().into()])
-            {
-                let op = UnaryOp::n(row[0]).unwrap();
-                let result = CouldBeZero::from(cbz.unwrap()).forward_unary(op);
-                self.analyses
-                    .could_be_zero
-                    .insert(&[row[2], DomCtx::top().into(), result.into()], &mut merge);
+        let mut matches = vec![];
+        for (unary, _) in self.unary.rows() {
+            for (cbz, _) in self.analyses.could_be_zero.rows() {
+                if cbz[0] == unary[1] {
+                    let op = UnaryOp::n(unary[0]).unwrap();
+                    let ctx = cbz[1];
+                    let result = CouldBeZero::from(cbz[2]).forward_unary(op);
+                    matches.push([unary[2], ctx, result.into()]);
+                }
             }
+        }
+        for m in matches {
+            self.analyses.could_be_zero.insert(&m, &mut merge);
         }
     }
 
     fn analysis16(&mut self) {
         // <>(x, y), x = cbz1, y = cbz2 => <>(cbz1, cbz2)
         let mut merge = |a, b| (CouldBeZero::from(a).meet(&CouldBeZero::from(b))).into();
-        for (row, _) in self.binary.rows() {
-            if let (Some(lhs_cbz), Some(rhs_cbz)) = (
-                self.analyses
-                    .could_be_zero
-                    .get(&[row[1], DomCtx::top().into()]),
-                self.analyses
-                    .could_be_zero
-                    .get(&[row[2], DomCtx::top().into()]),
-            ) {
-                let op = BinaryOp::n(row[0]).unwrap();
-                let result = CouldBeZero::from(lhs_cbz.unwrap())
-                    .forward_binary(&CouldBeZero::from(rhs_cbz.unwrap()), op);
-                self.analyses
-                    .could_be_zero
-                    .insert(&[row[3], DomCtx::top().into(), result.into()], &mut merge);
+        let mut matches = vec![];
+        for (binary, _) in self.binary.rows() {
+            for (cbz1, _) in self.analyses.could_be_zero.rows() {
+                for (cbz2, _) in self.analyses.could_be_zero.rows() {
+                    if cbz1[0] == binary[1] && cbz2[0] == binary[2] {
+                        let op = BinaryOp::n(binary[0]).unwrap();
+                        let ctx = DomCtx::from(cbz1[1]).meet(&DomCtx::from(cbz2[1]), &self.dom);
+                        let result = CouldBeZero::from(cbz1[2])
+                            .forward_binary(&CouldBeZero::from(cbz2[2]), op);
+                        matches.push([binary[3], ctx.into(), result.into()]);
+                    }
+                }
             }
+        }
+        for m in matches {
+            self.analyses.could_be_zero.insert(&m, &mut merge);
         }
     }
 
     fn analysis17(&mut self, old_analyses: &Analyses) {
         // phi(_, x, y), x = cbz1, y = cbz2 => cbz1 \sqcup cbz2
-        let get_cbz_on_edge =
-            |cbz: &Table, edge: (BlockId, BlockId), input: Value| -> Option<CouldBeZero> {
-                let is_back_edge = self.back_edges.contains(&edge);
-                let Some(unreachable) = self.analyses.edge_unreachability.get(&[edge.0, edge.1])
-                else {
-                    return None;
-                };
-                let unreachable = unreachable.unwrap() == 1;
-                if !unreachable
-                    && is_back_edge
-                    && let Some(old_cbz) = old_analyses
-                        .could_be_zero
-                        .get(&[input, DomCtx::top().into()])
-                {
-                    Some(old_cbz.unwrap().into())
-                } else if unreachable || is_back_edge {
-                    Some(CouldBeZero::Bottom)
-                } else if let Some(value) = cbz.get(&[input, DomCtx::top().into()]) {
-                    Some(value.unwrap().into())
-                } else {
-                    None
-                }
+        let get_cbz_on_edge = |cbz: &Table,
+                               edge: (BlockId, BlockId),
+                               input: Value,
+                               egraph: &Self|
+         -> Option<CouldBeZero> {
+            let is_back_edge = self.back_edges.contains(&edge);
+            let Some(unreachable) = self.analyses.edge_unreachability.get(&[edge.0, edge.1]) else {
+                return None;
             };
+            let unreachable = unreachable.unwrap() == 1;
+            if !unreachable
+                && is_back_edge
+                && let Some(old_cbz) = egraph.get_contextual_could_be_zero(
+                    input.into(),
+                    &old_analyses.could_be_zero,
+                    DomCtx::Block(edge.0),
+                )
+            {
+                Some(old_cbz.into())
+            } else if unreachable || is_back_edge {
+                Some(CouldBeZero::Bottom)
+            } else if let Some(value) =
+                egraph.get_contextual_could_be_zero(input.into(), cbz, DomCtx::Block(edge.0))
+            {
+                Some(value.into())
+            } else {
+                None
+            }
+        };
         let mut merge = |a, b| (CouldBeZero::from(a).meet(&CouldBeZero::from(b))).into();
         for (row, _) in self.phi.rows() {
             let block = row[0];
             let lhs_pred = self.cfg[&block][0].0;
             let rhs_pred = self.cfg[&block][1].0;
-            let Some(lhs_cbz) =
-                get_cbz_on_edge(&self.analyses.could_be_zero, (lhs_pred, block), row[1])
-            else {
+            let Some(lhs_cbz) = get_cbz_on_edge(
+                &self.analyses.could_be_zero,
+                (lhs_pred, block),
+                row[1],
+                &self,
+            ) else {
                 continue;
             };
-            let Some(rhs_cbz) =
-                get_cbz_on_edge(&self.analyses.could_be_zero, (rhs_pred, block), row[2])
-            else {
+            let Some(rhs_cbz) = get_cbz_on_edge(
+                &self.analyses.could_be_zero,
+                (rhs_pred, block),
+                row[2],
+                &self,
+            ) else {
                 continue;
             };
             self.analyses.could_be_zero.insert(
@@ -775,12 +805,33 @@ impl EGraph {
         }
     }
 
+    fn analysis18(&mut self) {
+        // <>(x), <>(x) = cbz => x = <>^-1(cbz)
+        let mut merge = |a, b| (CouldBeZero::from(a).meet(&CouldBeZero::from(b))).into();
+        let mut matches = vec![];
+        for (unary, _) in self.unary.rows() {
+            for (cbz, _) in self.analyses.could_be_zero.rows() {
+                if cbz[0] == unary[2] {
+                    let op = UnaryOp::n(unary[0]).unwrap();
+                    let ctx = cbz[1];
+                    let result = CouldBeZero::from(cbz[2]).backward_unary(op);
+                    matches.push([unary[1], ctx, result.into()]);
+                }
+            }
+        }
+        for m in matches {
+            self.analyses.could_be_zero.insert(&m, &mut merge);
+        }
+    }
+
     pub fn optimistic_analysis(&mut self) {
         self.analyses = Analyses::new(self.uf.num_class_ids());
         loop {
             let old_analyses = replace(&mut self.analyses, Analyses::new(self.uf.num_class_ids()));
 
             loop {
+                self.add_flow_sensitive_results();
+
                 self.analysis1(&old_analyses);
                 self.analysis2();
                 self.analysis3();
@@ -798,6 +849,7 @@ impl EGraph {
                 self.analysis15();
                 self.analysis16();
                 self.analysis17(&old_analyses);
+                self.analysis18();
 
                 let changed1 = self.analyses.block_unreachability.check_changed();
                 let changed2 = self.analyses.edge_unreachability.check_changed();

@@ -335,6 +335,10 @@ impl CouldBeZero {
         }
     }
 
+    pub fn backward_unary(&self, op: UnaryOp) -> CouldBeZero {
+        self.forward_unary(op)
+    }
+
     pub fn forward_binary(&self, other: &CouldBeZero, op: BinaryOp) -> CouldBeZero {
         use BinaryOp::*;
         use CouldBeZero::*;

@@ -97,6 +97,7 @@ impl EGraph {
             back_edges,
             dom,
         };
+
         let mut merge =
             |a: Value, b: Value| -> Value { egraph.uf.merge(a.into(), b.into()).into() };
         for (term_id, term) in ssa.terms() {
@@ -124,6 +125,7 @@ impl EGraph {
                 }
             }
         }
+
         egraph
     }
 
