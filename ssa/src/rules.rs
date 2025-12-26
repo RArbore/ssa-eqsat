@@ -357,18 +357,23 @@ impl EGraph {
     fn analysis5(&mut self) {
         // <>(x), x = [a, b] => <>([a, b])
         let mut merge = self.interval_interner.merge();
-        for (row, _) in self.unary.rows() {
-            if let Some(interval) = self.analyses.interval.get(&[row[1], DomCtx::top().into()]) {
-                let op = UnaryOp::n(row[0]).unwrap();
-                let interval = self.interval_interner.get(interval.unwrap().into());
-                let result = self
-                    .interval_interner
-                    .intern(interval.forward_unary(op))
-                    .into();
-                self.analyses
-                    .interval
-                    .insert(&[row[2], DomCtx::top().into(), result], &mut merge);
+        let mut matches = vec![];
+        for (unary, _) in self.unary.rows() {
+            for (interval, _) in self.analyses.interval.rows() {
+                if interval[0] == unary[1] {
+                    let op = UnaryOp::n(unary[0]).unwrap();
+                    let ctx = interval[1];
+                    let interval = self.interval_interner.get(interval[2].into());
+                    let result = self
+                        .interval_interner
+                        .intern(interval.forward_unary(op))
+                        .into();
+                    matches.push([unary[2], ctx, result]);
+                }
             }
+        }
+        for m in matches {
+            self.analyses.interval.insert(&m, &mut merge);
         }
     }
 
