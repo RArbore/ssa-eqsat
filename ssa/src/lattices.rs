@@ -293,6 +293,15 @@ impl CouldBeZero {
         CouldBeZero::Bottom
     }
 
+    pub fn leq(&self, other: &CouldBeZero) -> bool {
+        use CouldBeZero::*;
+        match (*self, *other) {
+            (Bottom, _) => true,
+            (_, Top) => true,
+            _ => *self == *other,
+        }
+    }
+
     pub fn meet(&self, other: &CouldBeZero) -> CouldBeZero {
         use CouldBeZero::*;
         match (*self, *other) {
@@ -415,12 +424,12 @@ impl DomCtx {
         let (DomCtx::Block(mut orig_a), DomCtx::Block(mut orig_b)) = (*self, *other) else {
             return DomCtx::Bottom;
         };
-        if dom.level[&orig_a] > dom.level[&orig_b] {
+        if dom.level[&orig_a] < dom.level[&orig_b] {
             swap(&mut orig_a, &mut orig_b);
         }
 
         let mut a = orig_a;
-        while dom.level[&a] < dom.level[&orig_b] {
+        while dom.level[&a] > dom.level[&orig_b] {
             a = dom.idom[&a];
         }
 
@@ -435,10 +444,10 @@ impl DomCtx {
         match (*self, *other) {
             (DomCtx::Bottom, ctx) | (ctx, DomCtx::Bottom) => ctx,
             (DomCtx::Block(mut a), DomCtx::Block(mut b)) => {
-                while dom.level[&a] < dom.level[&b] {
+                while dom.level[&a] > dom.level[&b] {
                     a = dom.idom[&a];
                 }
-                while dom.level[&a] > dom.level[&b] {
+                while dom.level[&a] < dom.level[&b] {
                     b = dom.idom[&b];
                 }
                 while a != b {

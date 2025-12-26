@@ -99,11 +99,7 @@ impl Table {
         replace(&mut self.changed, false)
     }
 
-    pub fn insert<'a, M>(
-        &'a mut self,
-        row: &[Value],
-        merge: &mut M,
-    ) -> (&'a [Value], RowId)
+    pub fn insert<'a, M>(&'a mut self, row: &[Value], merge: &mut M) -> (&'a [Value], RowId)
     where
         M: FnMut(Value, Value) -> Value,
     {

@@ -297,14 +297,15 @@ impl EGraph {
         for (block, preds) in &self.cfg {
             for (pred, cond) in preds {
                 let pred_unreachability = self.analyses.block_unreachability.get(&[*pred]);
-                if pred_unreachability == Some(Some(1))
-                    || self
-                        .analyses
-                        .could_be_zero
-                        .get(&[(*cond).into(), DomCtx::top().into()])
-                        .map(|cbz| CouldBeZero::Zero == cbz.unwrap().into())
-                        .unwrap_or(false)
-                {
+                let edge_always_zero = self
+                    .get_contextual_could_be_zero(
+                        (*cond).into(),
+                        &self.analyses.could_be_zero,
+                        DomCtx::Block(*pred),
+                    )
+                    .map(|cbz| cbz.leq(&CouldBeZero::Zero))
+                    .unwrap_or(false);
+                if pred_unreachability == Some(Some(1)) || edge_always_zero {
                     self.analyses
                         .edge_unreachability
                         .insert(&[*pred, *block, 1], &mut merge);
@@ -954,11 +955,7 @@ impl EGraph {
         let mut result = None;
         for (row, _) in could_be_zero.rows() {
             if root == row[0].into() && ctx.leq(&row[1].into(), &self.dom) {
-                result = Some(
-                    result
-                        .unwrap_or(CouldBeZero::top())
-                        .meet(&row[2].into()),
-                );
+                result = Some(result.unwrap_or(CouldBeZero::top()).meet(&row[2].into()));
             }
         }
         result
